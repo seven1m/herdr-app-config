@@ -55,6 +55,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 - **My PRs:** needs `gh auth login`.
 - **macOS only:** `mac-calendar`, `now-playing` and the Gmail mod's link opening.
 - **`keys.json`:** merge it into your own, and ask before replacing keys already in use.
+- **Icons need `./copy-assets.sh` (workaround):** Herdr (seen on 0.1.12) draws nothing for an `svg()` path that resolves through a symlink outside `~/.config/herdr-app`, whether it's a symlinked mod folder or a symlinked file. So the refresh and settings icons go missing when `mods/<mod>` is symlinked to this repo. `copy-assets.sh` copies each mod's image files into `~/.config/herdr-app/assets/<mod>/`, and the mods reference `assets/<mod>/<file>`. Rerun it after adding or changing an image. Remove the workaround once Herdr loads assets through symlinks.
 
 ## Done when
 

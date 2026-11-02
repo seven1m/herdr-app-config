@@ -100,7 +100,7 @@ export default class MyPrs extends View {
         .child(div().flex_1())
         .child(div().id("prs-refresh").size(26).flex().items_center().justify_center().rounded(7).cursor_pointer().text_color(t.muted)
           .tooltip("Refresh").hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.refresh(cx, true))
-          .child(svg("mods/my-prs/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
+          .child(svg("assets/my-prs/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
       .child(v_flex().id("prs-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(6)
         .when(Boolean(this.error), (e) => e.child(div().p(8).text_size(12).text_color(t.ansi1).child(this.error ?? "")))
         .child(this.section("review", "Review requested", this.review, "Nothing waiting on you", t, true))

@@ -118,7 +118,7 @@ export default class Gmail extends View {
         .child(this.button("mail-open", "Gmail", () => openUrl(`${this.gmail}#inbox`), t))
         .child(div().id("mail-refresh").px(6).rounded(4).cursor_pointer().text_color(t.muted).tooltip("Refresh")
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.refresh(cx, true))
-          .child(svg("mods/gmail/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
+          .child(svg("assets/gmail/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
       .child(v_flex().id("gmail-list").flex_1().min_h(0).overflow_y_scrollbar().gap(1).pb(6)
         .when(Boolean(this.error), (e) => e.child(div().whitespace_normal().text_color(t.ansi1).child(this.error ?? "")))
         .when(!this.error && this.unread === 0, (e) => e.child(div().text_color(t.dim).child("Inbox zero")))

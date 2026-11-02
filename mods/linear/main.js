@@ -254,7 +254,7 @@ export default class Linear extends View {
           .on_click(() => openOverlay({ mod: "linear", kind: "dialog", width: 520, height: 640, props: { dialog: "new" } })).child("+"))
         .child(div().id("refresh").size(26).flex().items_center().justify_center().rounded(7).cursor_pointer().text_color(t.muted)
           .tooltip("Refresh").hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.refresh(cx, true))
-          .child(svg("mods/linear/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
+          .child(svg("assets/linear/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
       .child(v_flex().flex_none().px(8).py(7).gap(6).border_b(1).border_color(t.border)
         .child(h_flex().h(28).pl(8).pr(4).gap(4).items_center().rounded(6).border_1()
           .border_color(this.text.trim() ? t.accent : t.border).bg(t.background)
