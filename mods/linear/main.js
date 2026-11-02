@@ -41,6 +41,14 @@ function spaceFor(issue) {
   return byName ?? null;
 }
 
+// A space's avatar color, as the spaces mod draws it (mods/spaces/main.js keeps the same table).
+const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
+
+function spaceColor(space, t) {
+  const color = (shared("space.colors") ?? {})[space.id] ?? "ansi6";
+  return color.startsWith("#") ? color : (MARK[color] ?? t[color]);
+}
+
 const PRIORITY_COLORS = { 1: "ansi1", 2: "working" };
 const INBOX_SHOWN = 8;
 const SEARCH_MIN = 2, SEARCH_DELAY_MS = 350, SEARCH_LIMIT = 25;
@@ -152,9 +160,12 @@ export default class Linear extends View {
       .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.status = status.id; cx.notify(); }).child(status.label);
   }
 
-  spaceButton(issue, t) {
-    return div().id(`space-${issue.id}`).flex_none().px(7).h(20).flex().items_center().rounded(6)
-      .text_size(11).text_color(t.muted).border_1().border_color(t.border).hover((s) => s.bg(t.raised).text_color(t.foreground))
+  // Filled in the linked space's avatar color, if there is one.
+  spaceButton(issue, t, color) {
+    const base = div().id(`space-${issue.id}`).flex_none().px(7).h(20).flex().items_center().rounded(6).text_size(11).border_1();
+    return (color
+      ? base.bg(color).border_color(color).text_color("#ffffff").hover((s) => s.opacity(0.85))
+      : base.text_color(t.muted).border_color(t.border).hover((s) => s.bg(t.raised).text_color(t.foreground)))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); this.openSpace(issue); }).child("Space");
   }
@@ -179,7 +190,7 @@ export default class Linear extends View {
         .child(div().flex_none().pt(1).text_size(11).text_color(t.accent).child(issue.identifier))
         .child(div().flex_1().min_w(0).whitespace_normal().child(issue.title))
         .when(search && !mine, (e) => e.child(this.assignButton(issue, t)))
-        .child(this.spaceButton(issue, t)))
+        .child(this.spaceButton(issue, t, space && spaceColor(space, t))))
       .child(h_flex().gap(8).items_center().text_size(11).text_color(t.dim)
         .child(this.meta(issue, t))
         .when(search, (e) => e.child(div().flex_none().text_color(t.muted).child(mine ? "You" : issue.assigneeName ?? "Unassigned")))
