@@ -33,19 +33,28 @@ export const STATUSES = [
 const expand = (path, home) => (path.startsWith("~/") ? `${home}${path.slice(1)}` : path);
 
 // `~/.config/herdr-app/linear.json`: { "apiKey": "lin_api_…", "repos": { "<TEAM KEY>": "~/dev/repo" },
-// "repoChoices": ["~/dev/other", …] } (more folders on this computer the agent dialog offers).
+// "repoChoices": ["~/dev/other", …] (more folders on this computer the agent dialog offers),
+// "workspace": "<url key>", "team": "<TEAM KEY>", "agents": ["codex", …] }. The last three fall back to HERDR_LINEAR_* env vars.
+const str = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+export function splitAgents(value) {
+  const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : null;
+  return list && list.map(str).filter(Boolean);
+}
+
 export function parseConfig(text, home) {
-  if (text == null) return { apiKey: null, repos: {}, repoChoices: [] };
+  const empty = { apiKey: null, repos: {}, repoChoices: [], workspace: null, team: null, agents: null };
+  if (text == null) return empty;
   let raw;
-  try { raw = JSON.parse(text); } catch { return { apiKey: null, repos: {}, repoChoices: [], error: "linear.json is not valid JSON" }; }
-  const apiKey = typeof raw?.apiKey === "string" && raw.apiKey.trim() ? raw.apiKey.trim() : null;
+  try { raw = JSON.parse(text); } catch { return { ...empty, error: "linear.json is not valid JSON" }; }
+  const apiKey = str(raw?.apiKey);
   const repos = {};
   for (const [team, folder] of Object.entries(raw?.repos ?? {})) {
     if (typeof folder === "string" && folder.trim()) repos[team.toUpperCase()] = expand(folder.trim(), home);
   }
   const choices = Array.isArray(raw?.repoChoices) ? raw.repoChoices : [];
   const repoChoices = choices.filter((f) => typeof f === "string" && f.trim()).map((f) => expand(f.trim(), home));
-  return { apiKey, repos, repoChoices };
+  return { apiKey, repos, repoChoices, workspace: str(raw?.workspace), team: str(raw?.team), agents: splitAgents(raw?.agents) };
 }
 
 // The dialog's repositories: the default one first, then each choice on this computer, once each.
