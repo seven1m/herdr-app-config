@@ -55,7 +55,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 - **My PRs:** needs `gh auth login`.
 - **macOS only:** `mac-calendar`, `now-playing` and the Gmail mod's link opening.
 - **`keys.json`:** merge it into your own, and ask before replacing keys already in use.
-- **Install by checking this repo out as `~/.config/herdr-app` itself,** not as symlinks into it: Herdr (seen on 0.1.12) draws no `svg()` image and doesn't reload a mod's code when the path goes through a symlink. With an existing Herdr home, run `git init`, `git remote add origin <url>`, `git fetch` and `git checkout -f main` inside it (this overwrites your `settings.json`, `keys.json` and `layouts/my-main.json`, so back them up first). The `.gitignore` is an allowlist, so Herdr's own files and secrets in that folder stay untracked; add a new mod's folder to it.
+- **Install by checking this repo out as `~/.config/herdr-app` itself,** not as symlinks into it: Herdr (seen on 0.1.12) draws no `svg()` image whose path goes through a symlink. With an existing Herdr home, run `git init`, `git remote add origin <url>`, `git fetch` and `git checkout -f main` inside it (this overwrites your `settings.json`, `keys.json` and `layouts/my-main.json`, so back them up first). The `.gitignore` is an allowlist, so Herdr's own files and secrets in that folder stay untracked; add a new mod's folder to it.
 
 ## Done when
 
