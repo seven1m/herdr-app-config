@@ -1,4 +1,22 @@
-gpui-kit.d.ts
+# This repo is checked out as ~/.config/herdr-app itself, next to Herdr's own files and secrets
+# (linear.json, shared.json, data/, frame/ …). Ignore everything, then allow only our files.
+/*
+!/.gitignore
+!/RECIPE.md
+!/settings.json
+!/keys.json
+!/layouts/
+/layouts/*
+!/layouts/my-main.json
+!/mods/
+/mods/*
+!/mods/aws-sso/
+!/mods/gmail/
+!/mods/linear/
+!/mods/mac-calendar/
+!/mods/my-prs/
+!/mods/now-playing/
+# Editor type stubs Herdr writes; never commit secrets even inside an allowed folder.
 jsconfig.json
-herdr.d.ts
+*.d.ts
 linear.json
