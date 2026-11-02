@@ -235,7 +235,6 @@
                 "weight": 1
               },
               "min": 340,
-              "max": 640,
               "content": {
                 "mod": "now-playing"
               }
