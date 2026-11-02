@@ -1,4 +1,4 @@
-// The "New issue" dialog: title, description, team, Investment Category, other labels, project.
+// The "New issue" dialog: title, description, team, status, priority, Investment Category, other labels, project.
 // Opened by the panel's + button as an overlay of this same mod with props { dialog: "new" }.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
@@ -8,9 +8,14 @@ import { loadConfig, gql, NO_KEY } from "./api.js";
 const LAST = "linear.new.last";
 const CATEGORY_GROUP = "Investment Category";
 const MAX_LABEL_MATCHES = 12;
+// Linear's workflow order; states of the same type sort by position.
+const STATE_ORDER = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
+// Linear's priority values: 0 none, 1 urgent … 4 low.
+const PRIORITIES = [[0, "No priority"], [1, "Urgent"], [2, "High"], [3, "Medium"], [4, "Low"]];
 
 const VIEWER = `{ viewer { id teams { nodes { id key name } } } }`;
 const TEAM = `query($id: String!) { team(id: $id) {
+  states(first: 50) { nodes { id name type color position } }
   labels(first: 250) { nodes { id name color isGroup parent { id name } } }
   projects(first: 50, filter: { state: { nin: ["completed", "canceled"] } }) { nodes { id name } }
 } }`;
@@ -22,7 +27,8 @@ export class NewIssueForm {
   init(cx) {
     const last = shared(LAST) ?? {};
     this.last = last;
-    this.teams = []; this.labels = []; this.projects = []; this.selected = new Set();
+    this.teams = []; this.labels = []; this.projects = []; this.states = []; this.selected = new Set();
+    this.stateId = null; this.stateName = last.stateName ?? null; this.priority = last.priority ?? 0;
     this.teamId = null; this.projectId = last.projectId ?? null; this.assignMe = false;
     this.openSpace = last.openSpace ?? false; this.labelFilter = ""; this.busy = false; this.error = null;
     this.title = InputState.new({ placeholder: "Issue title" });
@@ -46,12 +52,16 @@ export class NewIssueForm {
   }
 
   async loadTeam(teamId, cx, restoring = false) {
-    this.teamId = teamId; this.labels = []; this.projects = []; this.loadingTeam = true; cx.notify();
+    this.teamId = teamId; this.labels = []; this.projects = []; this.states = []; this.loadingTeam = true; cx.notify();
     try {
       const data = await gql(this.config.apiKey, TEAM, { id: teamId });
       if (this.teamId !== teamId) return;
       this.labels = data.team.labels.nodes.filter((l) => !l.isGroup);
       this.projects = data.team.projects.nodes;
+      const rank = (s) => STATE_ORDER.indexOf(s.type);
+      this.states = data.team.states.nodes.filter((s) => STATE_ORDER.includes(s.type)).sort((a, b) => rank(a) - rank(b) || a.position - b.position);
+      // Keep the status across teams by name; otherwise leave it to the team's default.
+      this.stateId = this.states.find((s) => s.name === this.stateName)?.id ?? null;
       const ids = new Set(this.labels.map((l) => l.id));
       const keep = restoring ? (this.last.categoryId ? [this.last.categoryId] : []) : [...this.selected];
       this.selected = new Set(keep.filter((id) => ids.has(id)));
@@ -78,6 +88,8 @@ export class NewIssueForm {
       ...(this.assignMe && this.viewerId ? { assigneeId: this.viewerId } : {}),
       ...(this.selected.size ? { labelIds: [...this.selected] } : {}),
       ...(this.projectId ? { projectId: this.projectId } : {}),
+      ...(this.stateId ? { stateId: this.stateId } : {}),
+      ...(this.priority ? { priority: this.priority } : {}),
     };
     cx.spawn(async (cx) => {
       try {
@@ -85,7 +97,7 @@ export class NewIssueForm {
         if (!data.issueCreate.success) throw new Error("Linear did not create the issue");
         const issue = data.issueCreate.issue;
         setShared(LAST, { teamId: this.teamId, categoryId: category?.id ?? null, projectId: this.projectId,
-          openSpace: this.openSpace });
+          stateName: this.stateName, priority: this.priority, openSpace: this.openSpace });
         if (this.openSpace) {
           const folder = this.config.repos?.[issue.team.key];
           run("space.new", { name: `${issue.identifier} ${issue.title}`.slice(0, 60), ...(folder ? { folder } : {}) });
@@ -133,6 +145,13 @@ export class NewIssueForm {
           .child(Textarea.new(this.description).w_full().text_size(12.5).text_color(t.foreground)))
         .child(this.section("Team", h_flex().flex_wrap().gap(6).children(this.teams.map((team) =>
           this.chip(`team-${team.key}`, team.name, this.teamId === team.id, (cx) => { if (this.teamId !== team.id) cx.spawn(async (cx) => this.loadTeam(team.id, cx)); }, t))), t))
+        .child(this.section("Status", this.loadingTeam ? div().text_color(t.dim).child("Loading…")
+          : h_flex().flex_wrap().gap(6)
+            .child(this.chip("state-default", "Team default", !this.stateId, () => { this.stateId = null; this.stateName = null; }, t))
+            .children(this.states.map((s) => this.chip(`state-${s.id}`, s.name, this.stateId === s.id,
+              () => { this.stateId = s.id; this.stateName = s.name; }, t, s.color))), t))
+        .child(this.section("Priority", h_flex().flex_wrap().gap(6).children(PRIORITIES.map(([value, name]) =>
+          this.chip(`prio-${value}`, name, this.priority === value, () => { this.priority = value; }, t))), t))
         .child(this.section("Investment Category", this.loadingTeam ? div().text_color(t.dim).child("Loading…")
           : h_flex().flex_wrap().gap(6).children(categories.map((l) =>
             this.chip(`cat-${l.id}`, l.name, this.selected.has(l.id), () => this.toggleLabel(l), t, l.color))), t))
