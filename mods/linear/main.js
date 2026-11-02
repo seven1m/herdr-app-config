@@ -1,13 +1,15 @@
 // Your open Linear issues. A row opens the issue in the browser; `Space` shows its Herdr space, or asks what
 // to start a new one with (space-menu.js); `+` opens the new-issue dialog (new.js). Both are this same mod as
-// an overlay, with props { dialog: "space" } or { dialog: "new" }.
+// an overlay, with props { dialog: "space" } or { dialog: "new" }. Clicking an issue's status opens
+// status-menu.js the same way, with props { dialog: "status" }.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, run, shared, setShared, theme, nextCommand, props, openOverlay } from "herdr";
-import { ISSUES_QUERY, SEARCH_QUERY, NOTIFICATIONS_QUERY, unreadInbox, markReadMutation, parseNode, PAGE_SIZE, MAX_PAGES, STATUSES, parseIssues, nextCursor, filterIssues, byState, ago } from "./linear.js";
+import { ISSUES_QUERY, SEARCH_QUERY, NOTIFICATIONS_QUERY, unreadInbox, markReadMutation, parseNode, PAGE_SIZE, MAX_PAGES, STATUSES, TEAM_STATES_QUERY, sortStates, parseIssues, nextCursor, filterIssues, byState, ago } from "./linear.js";
 import { loadConfig, gql, NO_KEY } from "./api.js";
 import { NewIssueForm } from "./new.js";
 import { SpaceMenu, MENU_WIDTH, menuHeight } from "./space-menu.js";
+import { StatusMenu, STATUS_MENU_WIDTH, statusMenuHeight } from "./status-menu.js";
 import { openUrl } from "./open.js";
 
 const REFRESH_MS = 60000;
@@ -58,8 +60,10 @@ export default class Linear extends View {
   init(_props, cx) {
     if (props()?.dialog === "new") { this.form = new NewIssueForm(); return this.form.init(cx); }
     if (props()?.dialog === "space") { this.form = new SpaceMenu(); return; }
+    if (props()?.dialog === "status") { this.form = new StatusMenu(); return this.form.init(cx); }
     this.issues = []; this.status = "all"; this.text = ""; this.generation = 0; this.loading = false;
     this.results = []; this.searchGen = 0; this.searching = false; this.assigning = new Set();
+    this.teamStates = new Map(); // team id -> promise of its sorted workflow states
     this.search = InputState.new({ placeholder: "Filter or search Linear" });
     this.search.on("change", (_e, cx) => { this.text = this.search.value(); this.scheduleSearch(cx); cx.notify(); });
     this.refresh(cx);
@@ -88,6 +92,7 @@ export default class Linear extends View {
         const [issues, inbox] = await Promise.all([fetchIssues(config.apiKey),
           gql(config.apiKey, NOTIFICATIONS_QUERY).then((d) => unreadInbox(d.notifications.nodes)).catch(() => null)]);
         if (generation === this.generation) { this.issues = issues; if (inbox) this.inbox = inbox; this.error = null; }
+        for (const issue of issues) this.statesFor(issue.teamId).catch(() => {}); // so the status menu opens at once
       } catch (e) { if (generation === this.generation) this.error = String(e.message ?? e); }
       finally { if (generation === this.generation) { this.loading = false; this.loaded = true; } cx.notify(); }
     });
@@ -135,6 +140,28 @@ export default class Linear extends View {
     cx.notify();
   }
 
+  // A team's workflow states, fetched once per team; a failed fetch is retried on the next ask.
+  statesFor(teamId) {
+    if (!teamId) return Promise.reject(new Error("Issue has no team"));
+    let p = this.teamStates.get(teamId);
+    if (!p) {
+      p = gql(this.config.apiKey, TEAM_STATES_QUERY, { id: teamId }).then((d) => sortStates(d.team.states.nodes));
+      p.catch(() => this.teamStates.delete(teamId));
+      this.teamStates.set(teamId, p);
+    }
+    return p;
+  }
+
+  openStatusMenu(issue, cx) {
+    cx.spawn(async (cx) => {
+      try {
+        const states = await this.statesFor(issue.teamId);
+        openOverlay({ mod: "linear", kind: "popup", at: "pointer", width: STATUS_MENU_WIDTH, height: statusMenuHeight(states),
+          props: { dialog: "status", issueId: issue.id, current: issue.state, states } });
+      } catch (e) { this.searchError = String(e.message ?? e); cx.notify(); }
+    });
+  }
+
   assignButton(issue, t) {
     const busy = this.assigning.has(issue.id);
     return div().id(`assign-${issue.id}`).flex_none().px(7).h(20).flex().items_center().rounded(6)
@@ -173,7 +200,10 @@ export default class Linear extends View {
   meta(issue, t) {
     const priority = issue.priority > 0 ? issue.priorityLabel : null;
     return h_flex().flex_1().min_w(0).gap(8).items_center().overflow_hidden()
-      .child(h_flex().flex_none().gap(5).items_center()
+      .child(h_flex().id(`state-${issue.id}`).flex_none().gap(5).items_center().px(4).ml(-4).rounded(4).cursor_pointer()
+        .hover((s) => s.bg(t.raised)).tooltip("Change status")
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); this.openStatusMenu(issue, cx); })
         .child(div().size(7).rounded_full().bg(issue.stateColor ?? t.dim))
         .child(div().text_color(t.muted).child(issue.state)))
       .when(Boolean(priority), (e) => e.child(div().flex_none().text_color(t[PRIORITY_COLORS[issue.priority]] ?? t.dim).child(priority)))

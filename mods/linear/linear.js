@@ -15,12 +15,20 @@ export const ISSUES_QUERY = `query AssignedIssues($first: Int!, $after: String) 
       nodes {
         id identifier title url branchName priority priorityLabel updatedAt description
         state { name type color }
-        team { key name }
+        team { id key name }
         labels { nodes { name color } }
       }
     }
   }
 }`;
+
+// A team's workflow states, for the status menu: Linear's workflow order, then position within a type.
+export const STATE_ORDER = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
+export const TEAM_STATES_QUERY = `query($id: String!) { team(id: $id) { states(first: 50) { nodes { id name type color position } } } }`;
+export function sortStates(nodes) {
+  const rank = (s) => STATE_ORDER.indexOf(s.type);
+  return (nodes ?? []).filter((s) => STATE_ORDER.includes(s.type)).sort((a, b) => rank(a) - rank(b) || a.position - b.position);
+}
 
 // Status chips, by Linear's workflow state types.
 export const STATUSES = [
@@ -75,7 +83,7 @@ export const SEARCH_QUERY = `query Search($term: String!, $first: Int!) {
     nodes {
       id identifier title url branchName priority priorityLabel updatedAt description
       state { name type color }
-      team { key name }
+      team { id key name }
       labels { nodes { name color } }
       assignee { id name }
     }
@@ -94,7 +102,7 @@ export function parseNode(n) {
     priority: n.priority ?? 0, priorityLabel: n.priorityLabel ?? "", updatedAt: n.updatedAt,
     description: n.description ?? null,
     state: n.state?.name ?? "", stateType: n.state?.type ?? "", stateColor: n.state?.color ?? null,
-    team: n.team?.key ?? "", teamName: n.team?.name ?? "",
+    teamId: n.team?.id ?? null, team: n.team?.key ?? "", teamName: n.team?.name ?? "",
     labels: (n.labels?.nodes ?? []).map((l) => ({ name: l.name, color: l.color })),
     assigneeId: n.assignee?.id ?? null, assigneeName: n.assignee?.name ?? null,
   };
