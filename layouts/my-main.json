@@ -221,6 +221,9 @@
             {
               "id": "status-main",
               "type": "block",
+              "size": {
+                "weight": 2
+              },
               "content": {
                 "mod": "workspace-status"
               }
@@ -229,8 +232,10 @@
               "id": "now-playing",
               "type": "block",
               "size": {
-                "px": 340
+                "weight": 1
               },
+              "min": 340,
+              "max": 640,
               "content": {
                 "mod": "now-playing"
               }

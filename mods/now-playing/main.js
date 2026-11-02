@@ -53,15 +53,15 @@ export default class NowPlaying extends View {
 
   render() {
     const t = theme(), info = this.info;
-    const bar = h_flex().id("now-playing").size_full().px(10).gap(4).items_center().justify_end()
+    const bar = h_flex().id("now-playing").size_full().px(10).gap(4).items_center().justify_center()
       .bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted);
     if (this.error) return bar.child(div().truncate().text_color(t.dim).tooltip(this.error).child("♪ media-control unavailable"));
     if (!info) return bar;
     const label = info.artist ? `${info.title} — ${info.artist}` : info.title;
     return bar
-      .child(div().flex_1().min_w(0).truncate().text_color(info.playing ? t.foreground : t.dim).child(`♪ ${label}`))
       .child(this.button("np-prev", "⏮", "Previous", "previous-track", t))
       .child(this.button("np-toggle", info.playing ? "⏸" : "▶", info.playing ? "Pause" : "Play", "toggle-play-pause", t))
-      .child(this.button("np-next", "⏭", "Next", "next-track", t));
+      .child(this.button("np-next", "⏭", "Next", "next-track", t))
+      .child(div().flex_shrink(1).min_w(0).ml(4).truncate().text_color(info.playing ? t.foreground : t.dim).child(`♪ ${label}`));
   }
 }
