@@ -224,9 +224,6 @@ export default class Linear extends View {
       .child(h_flex().gap(8).items_center().text_size(11).text_color(t.dim)
         .child(this.meta(issue, t))
         .when(search, (e) => e.child(div().flex_none().text_color(t.muted).child(mine ? "You" : issue.assigneeName ?? "Unassigned")))
-        .when(Boolean(space), (e) => e.child(h_flex().flex_none().gap(4).items_center()
-          .child(div().size(6).rounded_full().bg(t[space?.status] ?? t.accent))
-          .child(div().text_color(t.muted).child("space"))))
         .child(div().flex_none().child(`${issue.team} · ${ago(issue.updatedAt)}`)));
   }
 
