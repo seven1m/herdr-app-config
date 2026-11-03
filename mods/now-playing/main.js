@@ -1,14 +1,28 @@
 // Status bar: what macOS says is playing (YouTube Music in a browser tab, Spotify, Music…), with
-// previous / play-pause / next. Uses `media-control` (~/bin), which reads and drives macOS Now Playing.
+// previous / play-pause / next. Uses `media-control` from your PATH, which reads and drives macOS Now Playing.
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { exec, theme, home } from "herdr";
 
 const POLL_MS = 3000;
-const tool = () => `${home()}/bin/media-control`;
+
+// Apps launched from the Dock don't get your shell's PATH, so try common spots, then ask a login shell.
+let lookup = null; // found once; reload the mod after installing media-control
+async function findTool() {
+  const candidates = ["media-control", "/opt/homebrew/bin/media-control", "/usr/local/bin/media-control", `${home()}/bin/media-control`];
+  for (const c of candidates) {
+    const r = await exec(c, ["--version"]).catch(() => null);
+    if (r?.code === 0) return c;
+  }
+  const r = await exec("sh", ["-c", '"${SHELL:-sh}" -lic "command -v media-control" 2>/dev/null']).catch(() => null);
+  const path = (r?.stdout ?? "").split("\n").map((l) => l.trim()).reverse().find((l) => l.startsWith("/"));
+  if (!path) throw new Error("media-control not found on your PATH");
+  return path;
+}
+const tool = () => (lookup ??= findTool());
 
 async function nowPlaying() {
-  const r = await exec(tool(), ["get", "--no-artwork"]);
+  const r = await exec(await tool(), ["get", "--no-artwork"]);
   if (r.code !== 0) throw new Error((r.stderr || "media-control failed").trim().split("\n").pop());
   const info = JSON.parse(r.stdout.trim() || "null");
   if (!info?.title) return null;
@@ -39,7 +53,7 @@ export default class NowPlaying extends View {
   send(command, cx) {
     if (command === "toggle-play-pause" && this.info) { this.info = { ...this.info, playing: !this.info.playing }; cx.notify(); }
     cx.spawn(async (cx) => {
-      await exec(tool(), [command]).catch(() => null);
+      await exec(await tool().catch(() => null) ?? "media-control", [command]).catch(() => null);
       this.poll(cx);
       cx.timer.after(800, (cx) => this.poll(cx));
     });
