@@ -74,7 +74,7 @@ export class PrView {
 
   fileRow(f, i, t) {
     const parts = f.path.split("/"), name = parts.pop();
-    return h_flex().id(`file-${i}`).h(28).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer()
+    return h_flex().id(`file-${i}`).min_h(28).flex_none().px(8).py(4).gap(8).items_center().rounded(7).cursor_pointer()
       .when(i === this.pick, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.select(i, cx))
       .child(v_flex().flex_1().min_w(0)
         .child(div().truncate().text_color(f.status === "D" ? t.dim : t.foreground).child(name))
