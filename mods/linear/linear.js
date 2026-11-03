@@ -17,6 +17,7 @@ export const ISSUES_QUERY = `query AssignedIssues($first: Int!, $after: String) 
         state { name type color }
         team { id key name }
         labels { nodes { name color } }
+        attachments(first: 10) { nodes { url } }
       }
     }
   }
@@ -85,6 +86,7 @@ export const SEARCH_QUERY = `query Search($term: String!, $first: Int!) {
       state { name type color }
       team { id key name }
       labels { nodes { name color } }
+      attachments(first: 10) { nodes { url } }
       assignee { id name }
     }
   }
@@ -97,6 +99,7 @@ export const ISSUE_QUERY = `query Issue($id: String!) {
     state { name type color }
     team { id key name }
     labels { nodes { name color } }
+    attachments(first: 10) { nodes { url } }
   }
 }`;
 
@@ -126,8 +129,20 @@ export function parseNode(n) {
     state: n.state?.name ?? "", stateType: n.state?.type ?? "", stateColor: n.state?.color ?? null,
     teamId: n.team?.id ?? null, team: n.team?.key ?? "", teamName: n.team?.name ?? "",
     labels: (n.labels?.nodes ?? []).map((l) => ({ name: l.name, color: l.color })),
+    prs: pullRequests(n.attachments?.nodes),
     assigneeId: n.assignee?.id ?? null, assigneeName: n.assignee?.name ?? null,
   };
+}
+
+// GitHub pull requests attached to an issue, once each, by number.
+const PR_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)(?:[/?#]|$)/;
+export function pullRequests(nodes) {
+  const prs = new Map();
+  for (const { url } of nodes ?? []) {
+    const m = url?.match(PR_URL);
+    if (m && !prs.has(url)) prs.set(url, { number: Number(m[1]), url });
+  }
+  return [...prs.values()].sort((a, b) => a.number - b.number);
 }
 
 // The cursor of the next page, or null on the last one.

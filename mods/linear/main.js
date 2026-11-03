@@ -221,6 +221,20 @@ export default class Linear extends View {
         .border_color(`${l.color}88`).text_color(t.muted).child(l.name)));
   }
 
+  // The title, then its pull requests' numbers in faint text on the same line. With PRs, the title is
+  // laid out word by word in a wrapping row, so the numbers follow its last word instead of a new line.
+  title(issue, t) {
+    if (!issue.prs?.length) return div().flex_1().min_w(0).whitespace_normal().child(issue.title);
+    const prs = h_flex().flex_none().ml(2).gap(4).items_baseline().children(issue.prs.map((pr) =>
+      div().id(`pr-${issue.id}-${pr.number}`).text_size(11).text_color(t.dim).cursor_pointer().tooltip(pr.url)
+        .hover((s) => s.text_color(t.muted))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); openUrl(pr.url); }).child(`#${pr.number}`)));
+    return h_flex().flex_1().min_w(0).flex_wrap().gap_x(3.5).items_baseline()
+      .children(issue.title.split(/\s+/).filter(Boolean).map((word) => div().child(word)))
+      .child(prs);
+  }
+
   row(issue, t, search = false) {
     const space = spaceFor(issue), mine = issue.assigneeId === this.viewerId;
     return v_flex().id(`issue-${issue.id}`).flex_none().px(10).py(7).gap(3).rounded(7).cursor_pointer()
@@ -230,7 +244,7 @@ export default class Linear extends View {
         .child(div().flex_none().pt(1).text_size(11).text_color(t.accent).child(issue.identifier))
         .child(v_flex().flex_1().min_w(0).gap(3)
           .child(h_flex().gap(8).items_start()
-            .child(div().flex_1().min_w(0).whitespace_normal().child(issue.title))
+            .child(this.title(issue, t))
             .when(search && !mine, (e) => e.child(this.assignButton(issue, t)))
             .child(this.spaceButton(issue, t, space && spaceColor(space, t))))
           .child(h_flex().gap(8).items_center().text_size(11).text_color(t.dim)
