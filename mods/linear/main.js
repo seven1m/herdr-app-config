@@ -5,7 +5,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, run, shared, setShared, theme, nextCommand, props, openOverlay } from "herdr";
-import { ISSUES_QUERY, SEARCH_QUERY, NOTIFICATIONS_QUERY, unreadInbox, markReadMutation, parseNode, PAGE_SIZE, MAX_PAGES, STATUSES, TEAM_STATES_QUERY, sortStates, parseIssues, nextCursor, filterIssues, byState, ago } from "./linear.js";
+import { ISSUES_QUERY, ISSUE_QUERY, linkedIdentifiers, isOpen, SEARCH_QUERY, NOTIFICATIONS_QUERY, unreadInbox, markReadMutation, parseNode, PAGE_SIZE, MAX_PAGES, STATUSES, TEAM_STATES_QUERY, sortStates, parseIssues, nextCursor, filterIssues, byState, ago } from "./linear.js";
 import { loadConfig, gql, NO_KEY } from "./api.js";
 import { NewIssueForm } from "./new.js";
 import { SpaceMenu, MENU_WIDTH, menuHeight } from "./space-menu.js";
@@ -28,6 +28,15 @@ async function fetchIssues(apiKey) {
     if (!after) break;
   }
   return issues;
+}
+
+// Closed issues still linked to an open space, so their row (and Space button) stays until the space goes.
+// Fetched one by one: a deleted issue fails alone.
+async function fetchLinked(apiKey, known) {
+  const have = new Set(known.map((i) => i.identifier));
+  const missing = linkedIdentifiers(shared(SPACES_KEY), spaces()).filter((ident) => !have.has(ident));
+  const found = await Promise.all(missing.map((id) => gql(apiKey, ISSUE_QUERY, { id }).then((d) => d.issue && parseNode(d.issue)).catch(() => null)));
+  return found.filter(Boolean);
 }
 
 // Issue -> Herdr space links, by issue identifier: { "TEAM-123": "<space id>" }. A space named
@@ -91,6 +100,7 @@ export default class Linear extends View {
         if (!this.viewerId) this.viewerId = (await gql(config.apiKey, "{ viewer { id } }")).viewer.id;
         const [issues, inbox] = await Promise.all([fetchIssues(config.apiKey),
           gql(config.apiKey, NOTIFICATIONS_QUERY).then((d) => unreadInbox(d.notifications.nodes)).catch(() => null)]);
+        issues.push(...await fetchLinked(config.apiKey, issues));
         if (generation === this.generation) { this.issues = issues; if (inbox) this.inbox = inbox; this.error = null; }
         for (const issue of issues) this.statesFor(issue.teamId).catch(() => {}); // so the status menu opens at once
       } catch (e) { if (generation === this.generation) this.error = String(e.message ?? e); }
@@ -287,7 +297,7 @@ export default class Linear extends View {
       .text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Linear"))
-        .child(div().text_size(11).text_color(t.dim).child(`${this.issues.length} open`))
+        .child(div().text_size(11).text_color(t.dim).child(`${this.issues.filter(isOpen).length} open`))
         .child(div().flex_1())
         .child(div().id("new-issue").px(8).h(26).flex().items_center().rounded(7).cursor_pointer().text_size(13).text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))

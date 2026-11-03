@@ -90,6 +90,28 @@ export const SEARCH_QUERY = `query Search($term: String!, $first: Int!) {
   }
 }`;
 
+// One issue by its identifier ("TEAM-123"), in any state; same fields as ISSUES_QUERY.
+export const ISSUE_QUERY = `query Issue($id: String!) {
+  issue(id: $id) {
+    id identifier title url branchName priority priorityLabel updatedAt description
+    state { name type color }
+    team { id key name }
+    labels { nodes { name color } }
+  }
+}`;
+
+const IDENT = /^([A-Z][A-Z0-9]*-\d+)(?:\s|$)/;
+// Identifiers of issues linked to a space that still exists: by the link table ({ ident: space id })
+// or by a space named "<identifier>" or "<identifier> …".
+export function linkedIdentifiers(map, spaces) {
+  const ids = new Set(spaces.map((s) => s.id)), idents = new Set();
+  for (const [ident, id] of Object.entries(map ?? {})) if (ids.has(id)) idents.add(ident);
+  for (const s of spaces) { const m = s.named && s.name?.match(IDENT); if (m) idents.add(m[1]); }
+  return [...idents];
+}
+
+export const isOpen = (issue) => !["completed", "canceled", "duplicate"].includes(issue.stateType);
+
 export function parseIssues(json) {
   const message = json?.errors?.[0]?.message;
   if (message) throw new Error(isAuthError(message) ? "Invalid Linear API key" : message);
