@@ -218,13 +218,15 @@ export default class Linear extends View {
       .hover((s) => s.bg(t.hover)).on_click(() => openUrl(issue.url))
       .child(h_flex().gap(8).items_start()
         .child(div().flex_none().pt(1).text_size(11).text_color(t.accent).child(issue.identifier))
-        .child(div().flex_1().min_w(0).whitespace_normal().child(issue.title))
-        .when(search && !mine, (e) => e.child(this.assignButton(issue, t)))
-        .child(this.spaceButton(issue, t, space && spaceColor(space, t))))
-      .child(h_flex().gap(8).items_center().text_size(11).text_color(t.dim)
-        .child(this.meta(issue, t))
-        .when(search, (e) => e.child(div().flex_none().text_color(t.muted).child(mine ? "You" : issue.assigneeName ?? "Unassigned")))
-        .child(div().flex_none().child(`${issue.team} · ${ago(issue.updatedAt)}`)));
+        .child(v_flex().flex_1().min_w(0).gap(3)
+          .child(h_flex().gap(8).items_start()
+            .child(div().flex_1().min_w(0).whitespace_normal().child(issue.title))
+            .when(search && !mine, (e) => e.child(this.assignButton(issue, t)))
+            .child(this.spaceButton(issue, t, space && spaceColor(space, t))))
+          .child(h_flex().gap(8).items_center().text_size(11).text_color(t.dim)
+            .child(this.meta(issue, t))
+            .when(search, (e) => e.child(div().flex_none().text_color(t.muted).child(mine ? "You" : issue.assigneeName ?? "Unassigned")))
+            .child(div().flex_none().child(`${issue.team} · ${ago(issue.updatedAt)}`)))));
   }
 
   // Marks these inbox rows read in Linear and drops them from the panel; a failure puts them back.
