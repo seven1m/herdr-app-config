@@ -121,7 +121,10 @@ export class PrView {
         .when(this.files.length > 0, (e) => e
           .child(div().flex_none().text_size(12).text_color(t.muted).child(`${this.files.length} files`))
           .child(div().flex_none().text_size(12).text_color(t.ansi2).child(`+${add}`))
-          .child(div().flex_none().text_size(12).text_color(t.ansi1).child(`−${del}`))))
+          .child(div().flex_none().text_size(12).text_color(t.ansi1).child(`−${del}`)))
+        .child(div().id("pr-close").flex_none().size(26).flex().items_center().justify_center().rounded(7).cursor_pointer()
+          .text_size(16).text_color(t.muted).tooltip("Close").hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click(() => this.close()).child("×")))
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(v_flex().id("pr-files").w(280).flex_none().min_h(0).overflow_y_scrollbar().p(6).gap(1).border_r(1).border_color(t.border).text_size(12)
           .children(this.files.map((f, i) => this.fileRow(f, i, t)))
@@ -139,7 +142,6 @@ export class PrView {
         .child(this.button("pr-github", "Open on GitHub", t.raised, t.foreground, t.input, () => {
           const url = safeUrl(pr.url); if (url) exec("open", ["--", url]).catch(() => {});
         }))
-        .child(this.button("pr-close", "Close", t.raised, t.foreground, t.input, () => this.close()))
         .when(!pr.mine, (e) => e.child(this.actionButton("approve", "Approve", "Approving…", "Approved", t)))
         .when(this.approvals > 0 && !pr.draft, (e) => e.child(this.actionButton("merge", "Merge", "Merging…", "Merged", t))));
   }
