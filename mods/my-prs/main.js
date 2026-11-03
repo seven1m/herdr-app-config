@@ -2,8 +2,9 @@
 // Data comes from the `gh` CLI, so it uses your existing `gh auth login`; no token is stored here.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, theme, home } from "herdr";
+import { exec, theme, home, props, openOverlay, nextCommand } from "herdr";
 import { QUERY, MINE, REVIEW, parseResponse, safeUrl, ago } from "./prs.js";
+import { PrView, VIEW_WIDTH, VIEW_HEIGHT } from "./view.js";
 
 const REFRESH_MS = 120000;
 
@@ -39,9 +40,14 @@ function openUrl(url) {
 
 export default class MyPrs extends View {
   init(_props, cx) {
+    if (props()?.dialog === "view") { this.form = new PrView(); return this.form.init(cx); }
     this.mine = []; this.review = []; this.loading = false; this.generation = 0;
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
+    // The view dialog sends "refresh" (run("my-prs.refresh")) after approving.
+    cx.spawn(async (cx) => {
+      for (;;) { if ((await nextCommand()) === "refresh") this.refresh(cx); }
+    });
   }
 
   // Background refreshes stay quiet: no redraw until results arrive, and the icon only spins for a
@@ -53,8 +59,8 @@ export default class MyPrs extends View {
       try {
         this.gh = this.gh ?? (await findGh());
         if (!this.gh) throw new Error("gh not found. Install the GitHub CLI and run `gh auth login`.");
-        const { mine, review } = await fetchPrs(this.gh);
-        if (generation === this.generation) { this.mine = mine; this.review = review; this.error = null; }
+        const { viewer, mine, review } = await fetchPrs(this.gh);
+        if (generation === this.generation) { this.viewer = viewer; this.mine = mine; this.review = review; this.error = null; }
       } catch (e) { if (generation === this.generation) this.error = String(e.message ?? e); }
       finally { if (generation === this.generation) { this.loading = false; this.loaded = true; } cx.notify(); }
     });
@@ -63,6 +69,20 @@ export default class MyPrs extends View {
 
   tag(text, color, t) {
     return div().flex_none().text_color(t[color] ?? t.dim).child(text);
+  }
+
+  // Opens the diff with Approve (others' PRs) and Merge (once approved) buttons (view.js).
+  viewButton(pr, t) {
+    const { url, repo, number, title, author, approvals, mergeMethod, draft } = pr;
+    return div().id(`view-${pr.id}`).flex_none().px(7).h(20).flex().items_center().rounded(6).cursor_pointer()
+      .text_size(11).text_color(t.accent).border_1().border_color(t.accent).hover((s) => s.bg(t.raised).text_color(t.foreground))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        openOverlay({ mod: "my-prs", kind: "dialog", width: VIEW_WIDTH, height: VIEW_HEIGHT,
+          props: { dialog: "view", gh: this.gh, pr: { url, repo, number, title, author, approvals, mergeMethod, draft, mine: author === this.viewer } } });
+      })
+      .child("View");
   }
 
   row(pr, t, showAuthor) {
@@ -78,6 +98,7 @@ export default class MyPrs extends View {
           .when(pr.draft, (e) => e.child(this.tag("Draft", "dim", t)))
           .when(!pr.draft && Boolean(pr.review), (e) => e.child(this.tag(pr.review?.label ?? "", pr.review?.color, t)))
           .when(showAuthor, (e) => e.child(this.tag(pr.author, "dim", t))))
+        .child(this.viewButton(pr, t))
         .child(div().flex_none().child(ago(pr.updatedAt))));
   }
 
@@ -91,7 +112,8 @@ export default class MyPrs extends View {
         .child(!this.loaded && !this.error ? "Loading…" : empty)));
   }
 
-  render() {
+  render(cx) {
+    if (this.form) return this.form.render(cx);
     const t = theme();
     return v_flex().id("my-prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
