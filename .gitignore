@@ -11,6 +11,8 @@
 !/mods/
 /mods/*
 !/mods/aws-sso/
+!/mods/branch-changes/
+!/mods/changes-minimap/
 !/mods/gmail/
 !/mods/linear/
 !/mods/mac-calendar/

@@ -138,7 +138,7 @@
                       "id": "changes",
                       "type": "block",
                       "content": {
-                        "mod": "changes"
+                        "mod": "branch-changes"
                       }
                     }
                   ],
@@ -159,44 +159,55 @@
                 {
                   "id": "mac-calendar",
                   "type": "block",
-                  "size": {
-                    "px": 120
-                  },
                   "content": {
                     "mod": "mac-calendar"
+                  },
+                  "size": {
+                    "px": 120
                   }
                 },
                 {
                   "id": "gmail",
                   "type": "block",
-                  "size": {
-                    "px": 240
-                  },
                   "content": {
                     "mod": "gmail"
+                  },
+                  "size": {
+                    "px": 240
                   }
                 },
                 {
                   "id": "linear",
                   "type": "block",
+                  "content": {
+                    "mod": "linear"
+                  },
                   "size": {
                     "weight": 1
                   },
-                  "min": 160,
-                  "content": {
-                    "mod": "linear"
-                  }
+                  "min": 160
                 },
                 {
                   "id": "my-prs",
                   "type": "block",
+                  "content": {
+                    "mod": "my-prs"
+                  },
                   "size": {
                     "weight": 1
                   },
-                  "min": 160,
+                  "min": 160
+                },
+                {
+                  "id": "changes-minimap",
+                  "type": "block",
                   "content": {
-                    "mod": "my-prs"
-                  }
+                    "mod": "changes-minimap"
+                  },
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 160
                 }
               ],
               "size": {
@@ -214,42 +225,42 @@
         {
           "id": "status",
           "type": "row",
-          "size": {
-            "px": 28
-          },
           "children": [
             {
               "id": "status-main",
               "type": "block",
-              "size": {
-                "weight": 2
-              },
               "content": {
                 "mod": "workspace-status"
+              },
+              "size": {
+                "weight": 2
               }
             },
             {
               "id": "now-playing",
               "type": "block",
+              "content": {
+                "mod": "now-playing"
+              },
               "size": {
                 "weight": 1
               },
-              "min": 340,
-              "content": {
-                "mod": "now-playing"
-              }
+              "min": 340
             },
             {
               "id": "aws-sso",
               "type": "block",
-              "size": {
-                "px": 180
-              },
               "content": {
                 "mod": "aws-sso"
+              },
+              "size": {
+                "px": 180
               }
             }
-          ]
+          ],
+          "size": {
+            "px": 28
+          }
         }
       ],
       "resizable": false
