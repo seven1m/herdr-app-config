@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Unread Gmail inbox messages over IMAP, as JSON, for the Herdr `gmail` mod.
+"""Gmail inbox messages over IMAP, as JSON, for the Herdr `gmail` mod.
 
-  fetch.py list <email> [limit]      -> {"unread": n, "messages": [{uid, thread, from, subject, date}]}
+  fetch.py list <email> [limit]      -> {"total": n, "unread": n, "messages": [{uid, thread, from, subject, date, seen}]}
+  fetch.py show <email> <uid>          -> {from, to, subject, date, html|text}   (marks it read)
   fetch.py read <email> <uid> [...]     -> {"ok": true}   (marks those messages read)
   fetch.py archive <email> <uid> [...]  -> {"ok": true}   (removes the Inbox label; stays in All Mail)
   fetch.py delete <email> <uid> [...]   -> {"ok": true}   (moves to Trash)
@@ -11,6 +12,7 @@ $GOOGLE_APP_PASSWORD. Headers are read with BODY.PEEK, so listing never marks an
 Standard library only.
 """
 import email.header
+import email.policy
 import email.utils
 import imaplib
 import json
@@ -54,17 +56,19 @@ def connect(account):
     return imap
 
 
-def list_unread(account, limit):
+def list_inbox(account, limit):
     imap = connect(account)
     try:
         imap.select("INBOX", readonly=True)
-        _, data = imap.uid("SEARCH", None, "UNSEEN")
+        _, data = imap.uid("SEARCH", None, "ALL")
         uids = data[0].split() if data and data[0] else []
+        _, data = imap.uid("SEARCH", None, "UNSEEN")
+        unread = len(data[0].split()) if data and data[0] else 0
         newest = list(reversed(uids))[:limit]
         messages = []
         if newest:
             _, rows = imap.uid("FETCH", b",".join(newest),
-                               "(X-GM-THRID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+                               "(X-GM-THRID FLAGS BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
             for row in rows:
                 if not isinstance(row, tuple):
                     continue
@@ -79,9 +83,38 @@ def list_unread(account, limit):
                     "thread": format(int(thread.group(1)), "x") if thread else None,
                     "from": name or addr, "subject": decode(msg.get("Subject")) or "(no subject)",
                     "date": when.isoformat() if when else None,
+                    "seen": "\\Seen" in meta,
                 })
             messages.sort(key=lambda m: m["date"] or "", reverse=True)
-        return {"unread": len(uids), "messages": messages}
+        return {"total": len(uids), "unread": unread, "messages": messages}
+    finally:
+        imap.logout()
+
+
+BODY_LIMIT = 400_000
+DROP = re.compile(r"<(head|style|script)\b.*?</\1\s*>", re.I | re.S)
+
+
+def show(account, uid):
+    imap = connect(account)
+    try:
+        imap.select("INBOX")
+        _, rows = imap.uid("FETCH", uid, "(BODY[])")
+        raw = next((r[1] for r in rows or [] if isinstance(r, tuple)), None)
+        if raw is None:
+            raise Problem("Message not found (already archived or deleted?)")
+        msg = email.message_from_bytes(raw, policy=email.policy.default)
+        when = email.utils.parsedate_to_datetime(msg["Date"]) if msg["Date"] else None
+        out = {"from": decode(str(msg["From"] or "")), "to": decode(str(msg["To"] or "")),
+               "subject": decode(str(msg["Subject"] or "")) or "(no subject)",
+               "date": when.isoformat() if when else None}
+        part = msg.get_body(preferencelist=("html", "plain"))
+        content = part.get_content() if part else ""
+        if part is not None and part.get_content_subtype() == "html":
+            out["html"] = DROP.sub("", content)[:BODY_LIMIT]
+        else:
+            out["text"] = content[:BODY_LIMIT]
+        return out
     finally:
         imap.logout()
 
@@ -129,7 +162,9 @@ def main():
     command, account = sys.argv[1], sys.argv[2]
     try:
         if command == "list":
-            out = list_unread(account, int(sys.argv[3]) if len(sys.argv) > 3 else 10)
+            out = list_inbox(account, int(sys.argv[3]) if len(sys.argv) > 3 else 10)
+        elif command == "show" and len(sys.argv) > 3 and sys.argv[3].isdigit():
+            out = show(account, sys.argv[3])
         elif command == "read":
             out = mark_read(account, [u for u in sys.argv[3:] if u.isdigit()])
         elif command in ("archive", "delete"):
