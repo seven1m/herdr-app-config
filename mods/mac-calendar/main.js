@@ -47,6 +47,8 @@ order by s.name, c.title`;
 // Picks persist in shared state as calendar external ids; none saved = all but holidays and birthdays.
 const PICKS = "mac-calendar.include";
 const picked = (c) => { const p = shared(PICKS); return Array.isArray(p) ? p.includes(c.id) : !/holiday|birthday/i.test(c.title); };
+const FOLDED_AT = "mac-calendar.foldedAt";
+const SOON = 60 * 60, REOPEN_AFTER = 4 * 60 * 60;
 const OOO = /\bOOO\b|out of (the )?office/i;
 
 const LINK = /https:\/\/[^\s"'<>)]*(zoom\.us\/j|meet\.google\.com|teams\.microsoft\.com\/l\/meetup|whereby\.com|around\.co)[^\s"'<>)]*/i;
@@ -85,7 +87,7 @@ export default class Calendar extends View {
     this.block = props?.block ?? "mac-calendar";
     this.events = []; this.cals = []; this.picking = false; this.showPast = false; this.error = null; this.loaded = false;
     cx.timer.every(180000, (cx) => this.load(cx));
-    cx.timer.every(60000, (cx) => cx.notify());
+    cx.timer.every(60000, (cx) => { this.autoOpen(); cx.notify(); });
     this.load(cx);
   }
 
@@ -94,6 +96,7 @@ export default class Calendar extends View {
       try { [this.events, this.cals] = await Promise.all([load(), sql(CALS)]); this.error = null; }
       catch (e) { this.error = String(e.message ?? e); }
       this.loaded = true;
+      this.autoOpen();
       cx.notify();
     });
   }
@@ -150,7 +153,10 @@ export default class Calendar extends View {
     return v_flex().size_full().min_h(0).rounded(10).border_1().border_color(t.border).bg(t.background).overflow_hidden()
       .child(v_flex().id("cal-body").flex_1().min_h(0).px(12).text_size(12).overflow_y_scrollbar()
       .child(h_flex().h(FOLD - 2).flex_none().justify_between().items_center().text_color(t.dim)
-        .child(div().id("fold-calendar").flex_1().min_w(0).truncate().cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(() => toggleFold(this.block, FOLD))
+        .child(div().id("fold-calendar").flex_1().min_w(0).truncate().cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(() => {
+          if (!isFolded(this.block, FOLD)) setShared(FOLDED_AT, Date.now() / 1000);
+          toggleFold(this.block, FOLD);
+        })
           .child(`${arrow(this.block, FOLD)}  Calendar · ${!this.loaded ? "loading…" : `${shown.length || "no"} event${shown.length === 1 ? "" : "s"} today`}`))
         .child(h_flex().gap(2)
           .child(div().id("cal-pick-wrap").tooltip("Choose calendars").child(btn("cal-pick", this.picking ? "Done" : svg("mods/mac-calendar/settings.svg").size(13), (_, cx) => { this.picking = !this.picking; cx.notify(); })))
@@ -160,6 +166,15 @@ export default class Calendar extends View {
         .when(Boolean(this.error), (el) => el.child(div().text_color(t.ansi1).child(this.error)))
         .when(this.loaded && !this.error && shown.length === 0, (el) => el.child(div().h(ROW).text_color(t.dim).child("Nothing on the calendar today")))
         .children(list))));
+  }
+
+  // Unfolds when an event starts within the hour, unless it was folded by hand recently.
+  autoOpen() {
+    if (!this.loaded || !isFolded(this.block, FOLD)) return;
+    const now = Date.now() / 1000;
+    if (now - (shared(FOLDED_AT) ?? 0) < REOPEN_AFTER) return;
+    const on = new Set(this.cals.filter(picked).map((c) => c.id));
+    if (this.events.some((e) => on.has(e.cal) && !e.allDay && e.start > now && e.start - now <= SOON)) toggleFold(this.block, FOLD);
   }
 
   // Sizes the block to its rows, unless folded; only when the height changes.
