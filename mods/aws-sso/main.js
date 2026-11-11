@@ -1,15 +1,52 @@
 // Status bar item: how long until the AWS SSO session expires. Click to run $HERDR_AWS_LOGIN, or `pco aws-login`.
-// Reads only `expiresAt` from ~/.aws/sso/cache/*.json; tokens are never shown or sent anywhere.
+// Reads only expiry timestamps from ~/.aws/sso/cache/*.json; tokens are never shown or sent anywhere.
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { exec, readTextFile, run, theme, home } from "herdr";
 import { shellEnv } from "./env.js";
 
 const CHECK_MS = 60000;
-const WARN_MS = 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const WARN_MS = HOUR_MS;
+// IAM Identity Center client registrations last 90 days. `pco aws-login` registers a new client on every
+// browser login and refreshes keep the registration, so registrationExpiresAt - 90d is the login time.
+const REGISTRATION_MS = 90 * 24 * HOUR_MS;
+const DEFAULT_SESSION_HOURS = 16;
+// Access tokens last 1h; Identity Center shortens the last one to end with the session.
+const CAPPED_TOKEN_MS = 55 * 60 * 1000;
 
-// The latest expiry among cached SSO access tokens (not client registrations), or null.
+// The 1h access token doesn't mark the end of the session when a refresh token is cached: the CLI renews it
+// until the Identity Center session (set by an admin, not stored locally) ends, so that end is estimated.
+// writtenAt is the cache file's mtime: a token written with less than CAPPED_TOKEN_MS of life is the last one.
+function sessionEnd(json, sessionMs, writtenAt) {
+  const at = Date.parse(json.expiresAt);
+  if (Number.isNaN(at)) return null;
+  const reg = Date.parse(json.registrationExpiresAt);
+  if (!json.refreshToken || Number.isNaN(reg) || reg <= Date.now()) return at;
+  if (writtenAt !== null && at - writtenAt < CAPPED_TOKEN_MS) return at;
+  return Math.max(at, reg - REGISTRATION_MS + sessionMs);
+}
+
+// Full path: Nix's GNU stat can come first on PATH and takes different flags.
+async function modifiedAt(path) {
+  const r = await exec("/usr/bin/stat", ["-f", "%m", path]).catch(() => null);
+  const secs = r?.code === 0 ? Number(r.stdout.trim()) : NaN;
+  return Number.isNaN(secs) ? null : secs * 1000;
+}
+
+// Read once: shellEnv can spawn a login shell, which is too slow to repeat every check.
+let sessionMsPromise;
+function sessionLength() {
+  sessionMsPromise ??= shellEnv("HERDR_AWS_SESSION_HOURS").then((v) => {
+    const hours = Number(v);
+    return (hours > 0 ? hours : DEFAULT_SESSION_HOURS) * HOUR_MS;
+  });
+  return sessionMsPromise;
+}
+
+// The latest session end among cached SSO access tokens (not client registrations), or null.
 async function readExpiry() {
+  const sessionMs = await sessionLength();
   const dir = `${home()}/.aws/sso/cache`;
   const r = await exec("ls", [dir]).catch(() => null);
   if (r?.code !== 0) return null;
@@ -19,8 +56,8 @@ async function readExpiry() {
     let json;
     try { json = JSON.parse(text); } catch { continue; }
     if (!json?.accessToken || !json?.startUrl || !json?.expiresAt) continue;
-    const at = Date.parse(json.expiresAt);
-    if (!Number.isNaN(at) && (latest === null || at > latest)) latest = at;
+    const at = sessionEnd(json, sessionMs, await modifiedAt(`${dir}/${name}`));
+    if (at !== null && (latest === null || at > latest)) latest = at;
   }
   return latest;
 }

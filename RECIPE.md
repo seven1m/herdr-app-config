@@ -25,7 +25,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 - **Linear:** lists your open issues with search, plus unread inbox notifications. A row opens the issue. Clicking its status picks a new one from the team's workflow states. `Space` opens the issue's Herdr space, or asks whether to start a new one with a terminal, `claude` or a command from `HERDR_LINEAR_AGENTS`. `+` opens the new-issue dialog. Refreshes every minute.
 - **My PRs:** PRs waiting on your review and your own open PRs, with CI and review state. Refreshes every 2 minutes.
 - **Now Playing:** title and artist with previous, play/pause and next. Polls every 3 seconds.
-- **AWS SSO:** time left, with a green dot, yellow under an hour, red when expired. Clicking runs the login command in a new tab.
+- **AWS SSO:** time left in the SSO session (estimated as login time + session length when a refresh token is cached, or exact once Identity Center shortens the final access token), with a green dot, yellow under an hour, red when expired. Clicking runs the login command in a new tab.
 
 ## Built from
 
@@ -38,7 +38,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
   - `linear` calls `api.linear.app`.
   - `my-prs` runs `gh`.
   - `now-playing` runs `~/bin/media-control`.
-  - `aws-sso` reads `expiresAt` from `~/.aws/sso/cache/*.json` and runs the login command.
+  - `aws-sso` reads `expiresAt` and `registrationExpiresAt` from `~/.aws/sso/cache/*.json` and runs the login command.
 
 `mods/linear` and `mods/mac-calendar` are adapted from MIT-licensed mods; see the `LICENSE` file in each.
 
@@ -50,6 +50,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
   - `HERDR_LINEAR_TEAM`: the team key that comes first in search and is the new-issue default.
   - `HERDR_LINEAR_AGENTS`: comma-separated extra commands for the `Space` menu.
   - `HERDR_AWS_LOGIN`: the login command for the AWS item. Defaults to `pco aws-login`, Planning Center's login command; set `aws sso login` for plain AWS SSO.
+  - `HERDR_AWS_SESSION_HOURS`: the IAM Identity Center session duration your admin set. Defaults to 16, Planning Center's setting.
 - **Gmail:** needs an app password in macOS Keychain (service `herdr-gmail`, account = your address) or `$GOOGLE_APP_PASSWORD`.
 - **Linear:** needs `~/.config/herdr-app/linear.json` with `{ "apiKey": "lin_api_…" }`, or `$LINEAR_API_KEY`. The file's optional `repos` key maps team keys to folders. Never commit this file. The new-issue dialog expects an `Investment Category` label group.
 - **My PRs:** needs `gh auth login`.
