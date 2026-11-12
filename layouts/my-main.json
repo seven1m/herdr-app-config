@@ -76,15 +76,36 @@
       "type": "column",
       "children": [
         {
-          "id": "tabs",
-          "type": "block",
-          "content": {
-            "mod": "tabs"
-          },
+          "id": "tab-strip",
+          "type": "row",
+          "children": [
+            {
+              "id": "tabs",
+              "type": "block",
+              "content": {
+                "mod": "tabs"
+              },
+              "size": {
+                "weight": 1
+              },
+              "min": 0
+            },
+            {
+              "id": "uruk-launcher",
+              "type": "block",
+              "content": {
+                "mod": "uruk-launcher"
+              },
+              "size": {
+                "px": 88
+              }
+            }
+          ],
           "size": {
             "px": 42
           },
-          "window_drag": true
+          "window_drag": true,
+          "resizable": false
         },
         {
           "id": "work-body",
