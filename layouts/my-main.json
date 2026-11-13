@@ -89,16 +89,6 @@
                 "weight": 1
               },
               "min": 0
-            },
-            {
-              "id": "uruk-launcher",
-              "type": "block",
-              "content": {
-                "mod": "uruk-launcher"
-              },
-              "size": {
-                "px": 88
-              }
             }
           ],
           "size": {
