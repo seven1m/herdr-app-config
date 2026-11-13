@@ -1,13 +1,16 @@
-// The View button's dialog: a PR's diff, file list on the left, the picked file's diff on the right,
+// The View button's dialog: a PR's description and diff. The left list starts with a Description entry
+// (an AI summary card from summary.js sits above the description, saying "Summarizing…" until ready), then the files;
+// the right side shows the picked one,
 // with Approve and Merge in the footer. Opened by the panel as an overlay of this same mod with
 // props { dialog: "view", gh, pr: { url, repo, number, title, author, approvals, mergeMethod, draft, mine } }.
 // Approve (not on your own PRs) and Merge (once the PR has an approval; the repo's default merge method)
 // each ask once more ("Confirm approve") before running gh. The dialog stays open with the result, posts
-// a toast and tells the panel to refresh. Up/Down pick files, Esc closes.
+// a toast and tells the panel to refresh. Up/Down pick entries, Esc closes.
 import { div } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, TextView } from "gpui-base";
 import { exec, run, props, closeOverlay, notify, theme, settings } from "herdr";
 import { parseDiff, safeUrl } from "./prs.js";
+import { summarize } from "./summary.js";
 
 export const VIEW_WIDTH = 0.9, VIEW_HEIGHT = 0.88;
 
@@ -16,7 +19,10 @@ const firstLine = (r) => (r.stderr || r.stdout || "gh failed").trim().split("\n"
 
 export class PrView {
   init(cx) {
-    this.files = []; this.pick = 0; this.loading = true; this.error = null;
+    // pick -1 is the Description entry.
+    this.files = []; this.pick = -1; this.loading = true; this.error = null;
+    this.body = null; this.bodyError = null; this.diff = null;
+    this.summary = null; this.summaryError = null; this.summarizing = false;
     this.confirming = null; this.busy = null; this.status = null; this.done = new Set();
     this.approvals = props()?.pr?.approvals ?? 0;
     this.handle = cx.focus_handle();
@@ -26,11 +32,27 @@ export class PrView {
     cx.spawn(async (cx) => {
       try {
         if (!gh || !url) throw new Error("Missing gh or PR URL");
-        const r = await exec(gh, ["pr", "diff", url, "--color", "never"]);
+        const [r, b] = await Promise.all([
+          exec(gh, ["pr", "diff", url, "--color", "never"]),
+          exec(gh, ["pr", "view", url, "--json", "body", "-q", ".body"]),
+        ]);
+        if (b.code === 0) this.body = b.stdout.trim(); else this.bodyError = firstLine(b);
         if (r.code !== 0) throw new Error(firstLine(r));
+        this.diff = r.stdout;
         this.files = parseDiff(r.stdout);
       } catch (e) { this.error = String(e.message ?? e); }
       finally { this.loading = false; cx.notify(); }
+      this.summarize(cx);
+    });
+  }
+
+  summarize(cx) {
+    if (this.summarizing || this.diff == null) return;
+    this.summarizing = true; this.summaryError = null; cx.notify();
+    cx.spawn(async (cx) => {
+      try { this.summary = await summarize(props().pr ?? {}, this.body ?? "", this.diff); }
+      catch (e) { this.summaryError = String(e.message ?? e); }
+      finally { this.summarizing = false; cx.notify(); }
     });
   }
 
@@ -60,7 +82,7 @@ export class PrView {
   }
 
   select(i, cx) {
-    this.pick = Math.max(0, Math.min(this.files.length - 1, i));
+    this.pick = Math.max(-1, Math.min(this.files.length - 1, i));
     cx.notify();
   }
 
@@ -70,6 +92,32 @@ export class PrView {
       .child(div().w(36).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
       .child(div().w(10).flex_none().text_color(kind === "+" ? t.ansi2 : kind === "-" ? t.ansi1 : t.dim).child(kind.trim()))
       .child(div().flex_1().min_w(0).whitespace_nowrap().child(text));
+  }
+
+  entryRow(id, label, pick, t) {
+    return h_flex().id(id).min_h(28).flex_none().px(8).py(4).gap(8).items_center().rounded(7).cursor_pointer()
+      .when(this.pick === pick, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.select(pick, cx))
+      .child(div().flex_1().min_w(0).truncate().child(label));
+  }
+
+  summaryCard(t) {
+    const open = (url) => { const safe = safeUrl(url); if (safe) exec("open", ["--", safe]).catch(() => {}); };
+    return v_flex().flex_none().gap(6).mb(14).p(12).rounded(8).bg(t.raised).border_1().border_color(t.border)
+      .child(div().text_size(11).font_semibold().text_color(t.muted).child("AI summary"))
+      .when(!this.summary && !this.summaryError, (e) => e.child(div().text_size(13).text_color(t.dim).child("Summarizing…")))
+      .when(Boolean(this.summary), (e) => e.child(TextView.markdown("pr-summary-text", this.summary ?? "").selectable(true).text_size(13).text_color(t.foreground).on_link_click(open)))
+      .when(Boolean(this.summaryError), (e) => e.child(h_flex().gap(8).items_center().text_size(12)
+        .child(div().flex_1().min_w(0).whitespace_normal().text_color(t.ansi1).child(this.summaryError ?? ""))
+        .child(div().id("pr-summary-retry").flex_none().px(6).rounded(4).cursor_pointer().text_color(t.accent)
+          .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.summarize(cx)).child("Try again"))));
+  }
+
+  description(t) {
+    const text = this.bodyError ?? (this.body == null ? (this.loading ? "Loading description…" : "") : this.body || "_No description provided._");
+    return div().id("pr-description").flex_1().min_h(0).overflow_y_scrollbar().px(20).py(14)
+      .when(Boolean(this.summary || this.summaryError || this.summarizing || (this.loading && !this.error)), (e) => e.child(this.summaryCard(t)))
+      .child(TextView.markdown("pr-description-text", text).selectable(true).text_size(13).text_color(this.bodyError ? t.ansi1 : t.foreground)
+        .on_link_click((url) => { const safe = safeUrl(url); if (safe) exec("open", ["--", safe]).catch(() => {}); }));
   }
 
   fileRow(f, i, t) {
@@ -100,7 +148,7 @@ export class PrView {
     const t = theme();
     const { pr = {} } = props() ?? {};
     const repo = (pr.repo ?? "").split("/").pop();
-    const file = this.files[this.pick];
+    const file = this.pick >= 0 ? this.files[this.pick] : null;
     const rows = file?.rows ?? [];
     const width = Math.max(400, ...rows.map((r) => r.text.length * 7 + 80));
     const add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
@@ -127,18 +175,21 @@ export class PrView {
           .on_click(() => this.close()).child("×")))
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(v_flex().id("pr-files").w(280).flex_none().min_h(0).overflow_y_scrollbar().p(6).gap(1).border_r(1).border_color(t.border).text_size(12)
+          .child(this.entryRow("file-description", "Description", -1, t))
+          .child(div().h(1).mx(8).my(4).flex_none().bg(t.border))
           .children(this.files.map((f, i) => this.fileRow(f, i, t)))
           .when(Boolean(message), (e) => e.child(div().p(8).whitespace_normal().text_color(this.error ? t.ansi1 : t.dim).child(message ?? ""))))
-        .child(v_flex().flex_1().min_w(0).min_h(0)
+        .when(this.pick === -1, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0).child(this.description(t))))
+        .when(this.pick >= 0, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0)
           .when(Boolean(file), (e) => e.child(div().flex_none().px(12).py(6).truncate().text_size(12).text_color(t.muted).border_b(1).border_color(t.border).child(file?.path ?? "")))
           .child(div().flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
             .child(div().id("pr-diff-x").size_full().overflow_x_scrollbar()
               .child(div().w_full().min_w(width).h_full().child(v_virtual_list(`pr-diff-${this.pick}`, rows.length, 20, (i) => String(i),
                 (range) => rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
-            .child(Scrollbar.vertical(`pr-diff-${this.pick}`).viewport_from_layout().absolute().inset_0()))))
+            .child(Scrollbar.vertical(`pr-diff-${this.pick}`).viewport_from_layout().absolute().inset_0())))))
       .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_t(1).border_color(t.border).text_size(12)
         .child(div().flex_1().min_w(0).truncate().text_color(this.status ? t[this.status.color] : t.dim)
-          .child(this.status?.text ?? (this.confirming ? `${this.confirming === "approve" ? "Approve" : `Merge (${(pr.mergeMethod ?? "MERGE").toLowerCase()})`} this PR on GitHub? Esc to go back.` : "↑↓ files · Esc closes")))
+          .child(this.status?.text ?? (this.confirming ? `${this.confirming === "approve" ? "Approve" : `Merge (${(pr.mergeMethod ?? "MERGE").toLowerCase()})`} this PR on GitHub? Esc to go back.` : "↑↓ description and files · Esc closes")))
         .child(this.button("pr-github", "Open on GitHub", t.raised, t.foreground, t.input, () => {
           const url = safeUrl(pr.url); if (url) exec("open", ["--", url]).catch(() => {});
         }))

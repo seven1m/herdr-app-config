@@ -24,7 +24,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 - **Calendar:** folds to its header. The settings icon picks calendars; by default all show except holidays and birthdays.
 - **Mail:** a row opens the thread in Gmail. Its buttons mark read, archive or delete. Folds to its header. Refreshes every 2 minutes.
 - **Linear:** lists your open issues with search, plus unread inbox notifications. A row opens the issue. Clicking its status picks a new one from the team's workflow states. `Space` opens the issue's Herdr space, or asks whether to start a new one with a terminal, `claude` or a command from `HERDR_LINEAR_AGENTS`. `+` opens the new-issue dialog. Refreshes every minute.
-- **My PRs:** PRs waiting on your review and your own open PRs, with CI and review state. Refreshes every 2 minutes.
+- **My PRs:** PRs waiting on your review and your own open PRs, with CI and review state. Refreshes every 2 minutes. **View** opens a dialog with the PR description (topped by an AI summary from Claude) and the diff by file, with Approve and Merge.
 - **Now Playing:** title and artist with previous, play/pause and next. Polls every 3 seconds.
 - **AWS SSO:** time left in the SSO session (estimated as login time + session length when a refresh token is cached, or exact once Identity Center shortens the final access token), with a green dot, yellow under an hour, red when expired. Clicking runs the login command in a new tab.
 
@@ -37,7 +37,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
   - `mac-calendar` runs `sqlite3` on the macOS Calendar database.
   - `gmail` runs `/usr/bin/python3` (`fetch.py`), which connects to `imap.gmail.com`.
   - `linear` calls `api.linear.app`.
-  - `my-prs` runs `gh`.
+  - `my-prs` runs `gh`, calls `api.anthropic.com` for the summary, and runs `~/bin/ant` for a Claude login token.
   - `now-playing` runs `~/bin/media-control`.
   - `aws-sso` reads `expiresAt` and `registrationExpiresAt` from `~/.aws/sso/cache/*.json` and runs the login command.
 
@@ -55,7 +55,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 - **Gmail:** needs an app password in macOS Keychain (service `herdr-gmail`, account = your address) or `$GOOGLE_APP_PASSWORD`.
 - **Linear:** needs `~/.config/herdr-app/linear.json` with `{ "apiKey": "lin_api_…" }`, or `$LINEAR_API_KEY`. The file's optional `repos` key maps team keys to folders. Never commit this file. The new-issue dialog expects an `Investment Category` label group.
 - **Uruk:** settings and the oMLX API key live in `~/.config/herdr-app/uruk.json`, which stays ignored by Git. Copy `mods/uruk/config.example.json` to get started.
-- **My PRs:** needs `gh auth login`.
+- **My PRs:** needs `gh auth login`. The AI summary uses `apiKey` from `~/.config/herdr-app/my-prs.json`, else `$ANTHROPIC_API_KEY`, else the `ant` CLI login (`antProfile` in that file picks the profile). Its prompt is `mods/my-prs/summary-prompt.md`, overridden by `~/.config/herdr-app/my-prs-prompt.md`.
 - **macOS only:** `mac-calendar`, `now-playing` and the Gmail mod's link opening.
 - **`keys.json`:** merge it into your own, and ask before replacing keys already in use.
 - **Install by checking this repo out as `~/.config/herdr-app` itself,** not as symlinks into it: Herdr (seen on 0.1.12) draws no `svg()` image whose path goes through a symlink. With an existing Herdr home, run `git init`, `git remote add origin <url>`, `git fetch` and `git checkout -f main` inside it (this overwrites your `settings.json`, `keys.json` and `layouts/my-main.json`, so back them up first). The `.gitignore` is an allowlist, so Herdr's own files and secrets in that folder stay untracked; add a new mod's folder to it.
