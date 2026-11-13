@@ -10,6 +10,7 @@
 !/layouts/my-main.json
 !/mods/
 /mods/*
+!/mods/arch-diagrams/
 !/mods/aws-sso/
 !/mods/branch-changes/
 !/mods/changes-minimap/
@@ -22,3 +23,9 @@
 jsconfig.json
 *.d.ts
 linear.json
+# arch-diagrams: what setup.sh installs and the render cache, with machine-specific paths.
+/mods/arch-diagrams/.chrome/
+/mods/arch-diagrams/.renders/
+/mods/arch-diagrams/node_modules/
+/mods/arch-diagrams/.node-path
+/mods/arch-diagrams/.puppeteer.json

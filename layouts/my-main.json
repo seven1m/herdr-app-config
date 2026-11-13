@@ -131,6 +131,19 @@
               }
             },
             {
+              "id": "arch-panel",
+              "type": "block",
+              "content": {
+                "mod": "arch-diagrams"
+              },
+              "size": {
+                "px": 760
+              },
+              "min": 360,
+              "max": 1800,
+              "hidden": true
+            },
+            {
               "id": "panel",
               "type": "column",
               "children": [
