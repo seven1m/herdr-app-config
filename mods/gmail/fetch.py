@@ -129,13 +129,13 @@ def mark_read(account, uids):
         imap.logout()
 
 
-def trash_mailbox(imap):
+def special_mailbox(imap, flag, fallback):
     _, rows = imap.list()
     for row in rows or []:
         line = row.decode(errors="replace") if isinstance(row, bytes) else str(row)
-        if "\\Trash" in line:
+        if flag in line:
             return line.rsplit(' "/" ', 1)[-1].strip()
-    return '"[Gmail]/Trash"'
+    return fallback
 
 
 def change(account, uids, action):
@@ -145,10 +145,12 @@ def change(account, uids, action):
     try:
         imap.select("INBOX")
         ids = ",".join(uids)
+        # Gmail ignores removing the Inbox label while INBOX is selected, so archive by moving to
+        # All Mail, which only drops the Inbox label.
         if action == "archive":
-            typ, data = imap.uid("STORE", ids, "-X-GM-LABELS", "(\\Inbox)")
+            typ, data = imap.uid("MOVE", ids, special_mailbox(imap, "\\All", '"[Gmail]/All Mail"'))
         else:
-            typ, data = imap.uid("MOVE", ids, trash_mailbox(imap))
+            typ, data = imap.uid("MOVE", ids, special_mailbox(imap, "\\Trash", '"[Gmail]/Trash"'))
         if typ != "OK":
             raise Problem(f"{action} failed: {data}")
         return {"ok": True}
