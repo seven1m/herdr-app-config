@@ -98,3 +98,48 @@ export function parseDiff(text) {
   for (const f of files) if (!f.rows.length) f.rows.push({ kind: "", text: f.from ? `Renamed from ${f.from}` : "No text changes" });
   return files;
 }
+
+export const COMMENTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    comments(last: 100) { nodes { author { login } body createdAt url } }
+    reviews(last: 100) { nodes { author { login } body state submittedAt url } }
+    reviewThreads(last: 100) { nodes { isResolved isOutdated path line originalLine
+      comments(first: 50) { nodes { author { login } body createdAt url pullRequestReview { state } } } } }
+  } }
+}`;
+
+const REVIEW_STATES = {
+  APPROVED: { label: "Approved", color: "ansi2" },
+  CHANGES_REQUESTED: { label: "Changes requested", color: "ansi1" },
+  DISMISSED: { label: "Dismissed", color: "dim" },
+};
+
+// The PR's conversation, newest first (replies within a thread stay oldest first): { kind: "comment" | "review" | "thread", author, at, body, url,
+// state?, path?, line?, resolved?, outdated?, dismissed?, replies? }. dismissed marks a dismissed review
+// or a thread started in one. Reviews with no body show only when they
+// approve or request changes; their inline comments arrive as threads.
+export function parseComments(text) {
+  const json = JSON.parse(text);
+  const message = json?.errors?.[0]?.message;
+  if (message) throw new Error(message);
+  const pr = json?.data?.repository?.pullRequest;
+  if (!pr) throw new Error("Pull request not found");
+  const who = (n) => n?.author?.login ?? "ghost";
+  // Bots hide metadata in HTML comments, which would otherwise render as text.
+  const clean = (body) => (body ?? "").replace(/<!--[\s\S]*?-->/g, "").trim();
+  const items = [
+    ...(pr.comments?.nodes ?? []).map((n) => ({ kind: "comment", author: who(n), at: n.createdAt, body: clean(n.body), url: n.url })),
+    ...(pr.reviews?.nodes ?? []).filter((n) => n.submittedAt && (clean(n.body) || REVIEW_STATES[n.state]))
+      .map((n) => ({ kind: "review", author: who(n), at: n.submittedAt, body: clean(n.body), url: n.url, state: REVIEW_STATES[n.state] ?? null, dismissed: n.state === "DISMISSED" })),
+    ...(pr.reviewThreads?.nodes ?? []).filter((n) => n.comments?.nodes?.length).map((n) => {
+      const [first, ...rest] = n.comments.nodes;
+      return {
+        kind: "thread", author: who(first), at: first.createdAt, body: clean(first.body), url: first.url,
+        path: n.path, line: n.line ?? n.originalLine, resolved: Boolean(n.isResolved), outdated: Boolean(n.isOutdated),
+        dismissed: first.pullRequestReview?.state === "DISMISSED",
+        replies: rest.map((c) => ({ author: who(c), at: c.createdAt, body: clean(c.body) })),
+      };
+    }),
+  ];
+  return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}

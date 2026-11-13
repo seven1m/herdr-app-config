@@ -1,5 +1,6 @@
-// The View button's dialog: a PR's description and diff. The left list starts with a Description entry
-// (an AI summary card from summary.js sits above the description, saying "Summarizing…" until ready), then the files;
+// The View button's dialog: a PR's description, AI summary, comments and diff. The left list starts with
+// Description (shown first), Summary (summary.js; generated only once its entry is opened) and Comments
+// (comments, reviews and inline threads, newest first), then the files;
 // the right side shows the picked one,
 // with Approve and Merge in the footer. Opened by the panel as an overlay of this same mod with
 // props { dialog: "view", gh, pr: { url, repo, number, title, author, approvals, mergeMethod, draft, mine } }.
@@ -9,26 +10,29 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, TextView } from "gpui-base";
 import { exec, run, props, closeOverlay, notify, theme, settings } from "herdr";
-import { parseDiff, safeUrl } from "./prs.js";
-import { summarize } from "./summary.js";
+import { parseDiff, safeUrl, ago, COMMENTS_QUERY, parseComments } from "./prs.js";
+import { summarize, cachedSummary } from "./summary.js";
 
 export const VIEW_WIDTH = 0.9, VIEW_HEIGHT = 0.88;
 
 const MERGE_FLAGS = { MERGE: "--merge", SQUASH: "--squash", REBASE: "--rebase" };
+// pick values for the entries above the files (files are 0 and up).
+const DESCRIPTION = -3, SUMMARY = -2, COMMENTS = -1;
 const firstLine = (r) => (r.stderr || r.stdout || "gh failed").trim().split("\n")[0];
 
 export class PrView {
   init(cx) {
-    // pick -1 is the Description entry.
-    this.files = []; this.pick = -1; this.loading = true; this.error = null;
+    this.files = []; this.pick = DESCRIPTION; this.loading = true; this.error = null;
     this.body = null; this.bodyError = null; this.diff = null;
     this.summary = null; this.summaryError = null; this.summarizing = false;
+    this.comments = null; this.commentsError = null; this.expanded = new Set();
     this.confirming = null; this.busy = null; this.status = null; this.done = new Set();
     this.approvals = props()?.pr?.approvals ?? 0;
     this.handle = cx.focus_handle();
     this.handle.focus();
     const { gh, pr } = props();
     const url = safeUrl(pr?.url);
+    this.loadComments(cx);
     cx.spawn(async (cx) => {
       try {
         if (!gh || !url) throw new Error("Missing gh or PR URL");
@@ -42,8 +46,34 @@ export class PrView {
         this.files = parseDiff(r.stdout);
       } catch (e) { this.error = String(e.message ?? e); }
       finally { this.loading = false; cx.notify(); }
-      this.summarize(cx);
+      if (this.pick === SUMMARY) this.summarize(cx);
     });
+  }
+
+  loadComments(cx) {
+    const { gh, pr } = props();
+    const [owner, name] = (pr?.repo ?? "").split("/");
+    cx.spawn(async (cx) => {
+      try {
+        if (!gh || !owner || !name || !pr?.number) throw new Error("Missing gh or PR details");
+        const r = await exec(gh, ["api", "graphql", "-f", `query=${COMMENTS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${pr.number}`]);
+        if (r.code !== 0) throw new Error(firstLine(r));
+        this.comments = parseComments(r.stdout);
+      } catch (e) { this.commentsError = String(e.message ?? e); }
+      finally { cx.notify(); }
+    });
+  }
+
+  // On first opening the Summary entry: the last saved summary shows at once (summarize() replaces it if the
+  // PR has changed since), and the request waits for the diff if that's still loading.
+  openSummary(cx) {
+    if (this.summaryOpened) return;
+    this.summaryOpened = true;
+    cx.spawn(async (cx) => {
+      const saved = await cachedSummary(props().pr?.url).catch(() => null);
+      if (saved && !this.summary) { this.summary = saved; cx.notify(); }
+    });
+    this.summarize(cx);
   }
 
   summarize(cx) {
@@ -82,7 +112,8 @@ export class PrView {
   }
 
   select(i, cx) {
-    this.pick = Math.max(-1, Math.min(this.files.length - 1, i));
+    this.pick = Math.max(DESCRIPTION, Math.min(this.files.length - 1, i));
+    if (this.pick === SUMMARY) this.openSummary(cx);
     cx.notify();
   }
 
@@ -94,17 +125,68 @@ export class PrView {
       .child(div().flex_1().min_w(0).whitespace_nowrap().child(text));
   }
 
-  entryRow(id, label, pick, t) {
+  entryRow(id, label, pick, t, count = null) {
     return h_flex().id(id).min_h(28).flex_none().px(8).py(4).gap(8).items_center().rounded(7).cursor_pointer()
       .when(this.pick === pick, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.select(pick, cx))
-      .child(div().flex_1().min_w(0).truncate().child(label));
+      .child(div().flex_1().min_w(0).truncate().child(label))
+      .when(count !== null, (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(String(count))));
   }
 
-  summaryCard(t) {
+  commentBody(id, body, t) {
     const open = (url) => { const safe = safeUrl(url); if (safe) exec("open", ["--", safe]).catch(() => {}); };
-    return v_flex().flex_none().gap(6).mb(14).p(12).rounded(8).bg(t.raised).border_1().border_color(t.border)
-      .child(div().text_size(11).font_semibold().text_color(t.muted).child("AI summary"))
-      .when(!this.summary && !this.summaryError, (e) => e.child(div().text_size(13).text_color(t.dim).child("Summarizing…")))
+    return TextView.markdown(id, body).selectable(true).text_size(13).text_color(t.foreground).on_link_click(open);
+  }
+
+  commentHeader(author, at, t) {
+    return h_flex().gap(6).items_center().text_size(12)
+      .child(div().font_semibold().text_color(t.foreground).child(author))
+      .child(div().text_color(t.dim).child(`${ago(at)} ago`));
+  }
+
+  commentCard(c, i, t) {
+    const chip = (label, color) => div().flex_none().px(6).rounded(4).text_size(11).bg(t.hover).text_color(t[color] ?? t.muted).child(label);
+    const faded = c.dismissed || (c.kind === "thread" && (c.resolved || c.outdated));
+    // Dismissed reviews and their threads fold to the header line; a click on it toggles them.
+    const folded = c.dismissed && !this.expanded.has(i);
+    const toggle = (_e, cx) => { if (this.expanded.has(i)) this.expanded.delete(i); else this.expanded.add(i); cx.notify(); };
+    return v_flex().id(`comment-${i}`).flex_none().gap(6).p(12).rounded(8).border_1().border_color(t.border).bg(t.raised)
+      .when(faded, (e) => e.opacity(0.6))
+      .child(h_flex().id(`comment-head-${i}`).gap(8).items_center()
+        .when(c.dismissed, (e) => e.cursor_pointer().on_click(toggle)
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(folded ? "▸" : "▾")))
+        .child(div().flex_1().min_w(0).child(this.commentHeader(c.author, c.at, t)))
+        .when(Boolean(c.state), (e) => e.child(chip(c.state?.label ?? "", c.state?.color)))
+        .when(c.kind === "thread" && c.dismissed, (e) => e.child(chip("Dismissed", "dim")))
+        .when(c.kind === "thread" && c.resolved, (e) => e.child(chip("Resolved", "dim")))
+        .when(c.kind === "thread" && c.outdated && !c.resolved, (e) => e.child(chip("Outdated", "dim")))
+        .child(div().id(`comment-open-${i}`).flex_none().px(6).rounded(4).cursor_pointer().text_size(11).text_color(t.accent)
+          .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); const safe = safeUrl(c.url); if (safe) exec("open", ["--", safe]).catch(() => {}); }).child("Open")))
+      .when(!folded, (e) => e.children(this.commentDetail(c, i, t)));
+  }
+
+  commentDetail(c, i, t) {
+    return [
+      ...(c.kind === "thread" ? [div().truncate().text_size(11).text_color(t.muted)
+        .font_family(settings().font_family ?? "JetBrains Mono").child(`${c.path}${c.line ? `:${c.line}` : ""}`)] : []),
+      ...(c.body.trim() ? [this.commentBody(`comment-body-${i}`, c.body, t)] : []),
+      ...(c.replies ?? []).map((r, j) => v_flex().gap(4).mt(4).pl(10).border_l(2).border_color(t.border)
+        .child(this.commentHeader(r.author, r.at, t))
+        .child(this.commentBody(`comment-body-${i}-${j}`, r.body, t))),
+    ];
+  }
+
+  commentList(t) {
+    const message = this.commentsError ?? (this.comments == null ? "Loading comments…" : !this.comments.length ? "No comments yet" : null);
+    return v_flex().id("pr-comments").flex_1().min_h(0).overflow_y_scrollbar().px(20).py(14).gap(10)
+      .when(Boolean(message), (e) => e.child(div().whitespace_normal().text_color(this.commentsError ? t.ansi1 : t.dim).child(message ?? "")))
+      .children((this.comments ?? []).map((c, i) => this.commentCard(c, i, t)));
+  }
+
+  summaryPane(t) {
+    const open = (url) => { const safe = safeUrl(url); if (safe) exec("open", ["--", safe]).catch(() => {}); };
+    const waiting = this.error ? "No diff to summarize" : "Summarizing…";
+    return v_flex().id("pr-summary").flex_1().min_h(0).overflow_y_scrollbar().px(20).py(14).gap(10)
+      .when(!this.summary && !this.summaryError, (e) => e.child(div().text_size(13).text_color(t.dim).child(waiting)))
       .when(Boolean(this.summary), (e) => e.child(TextView.markdown("pr-summary-text", this.summary ?? "").selectable(true).text_size(13).text_color(t.foreground).on_link_click(open)))
       .when(Boolean(this.summaryError), (e) => e.child(h_flex().gap(8).items_center().text_size(12)
         .child(div().flex_1().min_w(0).whitespace_normal().text_color(t.ansi1).child(this.summaryError ?? ""))
@@ -115,7 +197,6 @@ export class PrView {
   description(t) {
     const text = this.bodyError ?? (this.body == null ? (this.loading ? "Loading description…" : "") : this.body || "_No description provided._");
     return div().id("pr-description").flex_1().min_h(0).overflow_y_scrollbar().px(20).py(14)
-      .when(Boolean(this.summary || this.summaryError || this.summarizing || (this.loading && !this.error)), (e) => e.child(this.summaryCard(t)))
       .child(TextView.markdown("pr-description-text", text).selectable(true).text_size(13).text_color(this.bodyError ? t.ansi1 : t.foreground)
         .on_link_click((url) => { const safe = safeUrl(url); if (safe) exec("open", ["--", safe]).catch(() => {}); }));
   }
@@ -175,11 +256,15 @@ export class PrView {
           .on_click(() => this.close()).child("×")))
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(v_flex().id("pr-files").w(280).flex_none().min_h(0).overflow_y_scrollbar().p(6).gap(1).border_r(1).border_color(t.border).text_size(12)
-          .child(this.entryRow("file-description", "Description", -1, t))
+          .child(this.entryRow("file-description", "Description", DESCRIPTION, t))
+          .child(this.entryRow("file-summary", "Summary", SUMMARY, t))
+          .child(this.entryRow("file-comments", "Comments", COMMENTS, t, this.comments ? this.comments.reduce((n, c) => n + 1 + (c.replies?.length ?? 0), 0) : null))
           .child(div().h(1).mx(8).my(4).flex_none().bg(t.border))
           .children(this.files.map((f, i) => this.fileRow(f, i, t)))
           .when(Boolean(message), (e) => e.child(div().p(8).whitespace_normal().text_color(this.error ? t.ansi1 : t.dim).child(message ?? ""))))
-        .when(this.pick === -1, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0).child(this.description(t))))
+        .when(this.pick === DESCRIPTION, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0).child(this.description(t))))
+        .when(this.pick === SUMMARY, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0).child(this.summaryPane(t))))
+        .when(this.pick === COMMENTS, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0).child(this.commentList(t))))
         .when(this.pick >= 0, (e) => e.child(v_flex().flex_1().min_w(0).min_h(0)
           .when(Boolean(file), (e) => e.child(div().flex_none().px(12).py(6).truncate().text_size(12).text_color(t.muted).border_b(1).border_color(t.border).child(file?.path ?? "")))
           .child(div().flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
@@ -189,7 +274,7 @@ export class PrView {
             .child(Scrollbar.vertical(`pr-diff-${this.pick}`).viewport_from_layout().absolute().inset_0())))))
       .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_t(1).border_color(t.border).text_size(12)
         .child(div().flex_1().min_w(0).truncate().text_color(this.status ? t[this.status.color] : t.dim)
-          .child(this.status?.text ?? (this.confirming ? `${this.confirming === "approve" ? "Approve" : `Merge (${(pr.mergeMethod ?? "MERGE").toLowerCase()})`} this PR on GitHub? Esc to go back.` : "↑↓ description and files · Esc closes")))
+          .child(this.status?.text ?? (this.confirming ? `${this.confirming === "approve" ? "Approve" : `Merge (${(pr.mergeMethod ?? "MERGE").toLowerCase()})`} this PR on GitHub? Esc to go back.` : "↑↓ description, summary, comments and files · Esc closes")))
         .child(this.button("pr-github", "Open on GitHub", t.raised, t.foreground, t.input, () => {
           const url = safeUrl(pr.url); if (url) exec("open", ["--", url]).catch(() => {});
         }))

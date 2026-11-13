@@ -23,7 +23,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 - **Calendar:** folds to its header. The settings icon picks calendars; by default all show except holidays and birthdays.
 - **Mail:** a row opens the thread in Gmail. Its buttons mark read, archive or delete. Folds to its header. Refreshes every 2 minutes.
 - **Linear:** lists your open issues with search, plus unread inbox notifications. A row opens the issue. Clicking its status picks a new one from the team's workflow states. `Space` opens the issue's Herdr space, or asks whether to start a new one with a terminal, `claude` or a command from `HERDR_LINEAR_AGENTS`. `+` opens the new-issue dialog. Refreshes every minute.
-- **My PRs:** PRs waiting on your review and your own open PRs, with CI and review state. Refreshes every 2 minutes. **View** opens a dialog with the PR description (topped by an AI summary from Claude) and the diff by file, with Approve and Merge.
+- **My PRs:** PRs waiting on your review and your own open PRs, with CI and review state. Refreshes every 2 minutes. **View** opens a dialog with the PR description, an AI summary from Claude (generated when you open its entry and cached in `data/my-prs/summaries.json`), the comments, reviews and inline threads, and the diff by file, with Approve and Merge.
 - **Now Playing:** title and artist with previous, play/pause and next. Polls every 3 seconds.
 - **AWS SSO:** time left in the SSO session (estimated as login time + session length when a refresh token is cached, or exact once Identity Center shortens the final access token), with a green dot, yellow under an hour, red when expired. Clicking runs the login command in a new tab.
 
