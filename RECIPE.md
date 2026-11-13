@@ -7,7 +7,7 @@ Herdr's default layout with a personal dashboard added: a toggleable right colum
 ## What you see
 
 - **Sidebar (left, 268px):** Herdr's shipped layout: `workspace-chrome` brand, `spaces`, `agents`, and `workspace-chrome` footer.
-- **Work area:** `tabs` and an `Uruk +` launcher (42px), the active tab's panes, then a 28px status row.
+- **Work area:** `tabs` (42px), the active tab's panes, then a 28px status row.
 - **Files panel (368px, hidden by default):** Herdr's shipped `files` and `changes` mods in a stack.
 - **Dashboard column, `linear-panel` (420px, hidden by default),** top to bottom:
   - `mac-calendar` (120px): today's events.
@@ -20,7 +20,6 @@ Herdr's default layout with a personal dashboard added: a toggleable right colum
 Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; this layout doesn't change them.
 
 - `cmd-alt-b` toggles the dashboard column and `cmd-b` toggles the sidebar. The rest of `keys.json` is macOS-style tab, pane and space bindings.
-- **Uruk:** `Uruk +` opens a native coding chat tab connected to local oMLX. Each tab saves its own conversation across reloads. See `mods/uruk/README.md` for configuration and shell execution details.
 - **Calendar:** folds to its header. The settings icon picks calendars; by default all show except holidays and birthdays.
 - **Mail:** a row opens the thread in Gmail. Its buttons mark read, archive or delete. Folds to its header. Refreshes every 2 minutes.
 - **Linear:** lists your open issues with search, plus unread inbox notifications. A row opens the issue. Clicking its status picks a new one from the team's workflow states. `Space` opens the issue's Herdr space, or asks whether to start a new one with a terminal, `claude` or a command from `HERDR_LINEAR_AGENTS`. `+` opens the new-issue dialog. Refreshes every minute.
@@ -32,7 +31,7 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
 
 - **Layout:** `layouts/my-main.json`, cloned from Herdr's `main` 0.1.11.
 - **Shipped mods:** `workspace-chrome`, `spaces`, `agents`, `tabs`, `pane`, `files`, `changes`, `workspace-status`.
-- **Custom mods:** `mac-calendar`, `gmail`, `linear`, `my-prs`, `now-playing`, `aws-sso`, `uruk`, `uruk-launcher`.
+- **Custom mods:** `mac-calendar`, `gmail`, `linear`, `my-prs`, `now-playing`, `aws-sso`.
 - **Programs and network:**
   - `mac-calendar` runs `sqlite3` on the macOS Calendar database.
   - `gmail` runs `/usr/bin/python3` (`fetch.py`), which connects to `imap.gmail.com`.
@@ -54,7 +53,6 @@ Agent statuses are drawn by Herdr's shipped `agents`, `spaces` and `pane` mods; 
   - `HERDR_AWS_SESSION_HOURS`: the IAM Identity Center session duration your admin set. Defaults to 16, Planning Center's setting.
 - **Gmail:** needs an app password in macOS Keychain (service `herdr-gmail`, account = your address) or `$GOOGLE_APP_PASSWORD`.
 - **Linear:** needs `~/.config/herdr-app/linear.json` with `{ "apiKey": "lin_api_…" }`, or `$LINEAR_API_KEY`. The file's optional `repos` key maps team keys to folders. Never commit this file. The new-issue dialog expects an `Investment Category` label group.
-- **Uruk:** settings and the oMLX API key live in `~/.config/herdr-app/uruk.json`, which stays ignored by Git. Copy `mods/uruk/config.example.json` to get started.
 - **My PRs:** needs `gh auth login`. The AI summary uses `apiKey` from `~/.config/herdr-app/my-prs.json`, else `$ANTHROPIC_API_KEY`, else the `ant` CLI login (`antProfile` in that file picks the profile). Its prompt is `mods/my-prs/summary-prompt.md`, overridden by `~/.config/herdr-app/my-prs-prompt.md`.
 - **macOS only:** `mac-calendar`, `now-playing` and the Gmail mod's link opening.
 - **`keys.json`:** merge it into your own, and ask before replacing keys already in use.

@@ -18,8 +18,6 @@
 !/mods/mac-calendar/
 !/mods/my-prs/
 !/mods/now-playing/
-!/mods/uruk/
-!/mods/uruk-launcher/
 # Editor type stubs Herdr writes; never commit secrets even inside an allowed folder.
 jsconfig.json
 *.d.ts
