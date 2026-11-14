@@ -9,6 +9,7 @@ export const QUERY = `query($mine: String!, $review: String!) {
 fragment pr on PullRequest {
   id number title url isDraft updatedAt reviewDecision
   author { login }
+  assignees(first: 5) { nodes { login } }
   repository { nameWithOwner viewerDefaultMergeMethod }
   reviews(states: APPROVED) { totalCount }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -37,6 +38,7 @@ function parsePr(n) {
   return {
     id: n.id, number: n.number, title: n.title ?? "", url: n.url, draft: Boolean(n.isDraft),
     updatedAt: n.updatedAt, repo: n.repository?.nameWithOwner ?? "", author: n.author?.login ?? "",
+    assignees: (n.assignees?.nodes ?? []).map((a) => a?.login).filter(Boolean),
     approvals: n.reviews?.totalCount ?? 0, mergeMethod: n.repository?.viewerDefaultMergeMethod ?? "MERGE",
     ci: ci ? CI[ci] ?? { label: ci.toLowerCase(), color: "dim" } : null,
     review: REVIEW_LABELS[n.reviewDecision] ?? null,

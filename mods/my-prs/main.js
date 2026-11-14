@@ -73,14 +73,14 @@ export default class MyPrs extends View {
 
   // Opens the diff with Approve (others' PRs) and Merge (once approved) buttons (view.js).
   viewButton(pr, t) {
-    const { url, repo, number, title, author, approvals, mergeMethod, draft } = pr;
+    const { url, repo, number, title, author, assignees, approvals, mergeMethod, draft } = pr;
     return div().id(`view-${pr.id}`).flex_none().px(7).h(20).flex().items_center().rounded(6).cursor_pointer()
       .text_size(11).text_color(t.accent).border_1().border_color(t.accent).hover((s) => s.bg(t.raised).text_color(t.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => {
         cx.stop_propagation();
         openOverlay({ mod: "my-prs", kind: "dialog", width: VIEW_WIDTH, height: VIEW_HEIGHT,
-          props: { dialog: "view", gh: this.gh, pr: { url, repo, number, title, author, approvals, mergeMethod, draft, mine: author === this.viewer } } });
+          props: { dialog: "view", gh: this.gh, pr: { url, repo, number, title, author, assignees, approvals, mergeMethod, draft, mine: author === this.viewer } } });
       })
       .child("View");
   }

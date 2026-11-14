@@ -3,7 +3,7 @@
 // (comments, reviews and inline threads, newest first), then the files;
 // the right side shows the picked one,
 // with Approve and Merge in the footer. Opened by the panel as an overlay of this same mod with
-// props { dialog: "view", gh, pr: { url, repo, number, title, author, approvals, mergeMethod, draft, mine } }.
+// props { dialog: "view", gh, pr: { url, repo, number, title, author, assignees, approvals, mergeMethod, draft, mine } }.
 // Approve (not on your own PRs) and Merge (once the PR has an approval; the repo's default merge method)
 // each ask once more ("Confirm approve") before running gh. The dialog stays open with the result, posts
 // a toast and tells the panel to refresh. Up/Down pick entries, Esc closes.
@@ -137,6 +137,11 @@ export class PrView {
     return TextView.markdown(id, body).selectable(true).text_size(13).text_color(t.foreground).on_link_click(open);
   }
 
+  byline(pr) {
+    const others = (pr.assignees ?? []).filter((a) => a !== pr.author);
+    return `by ${pr.author ?? "?"}${others.length ? ` (${others.join(", ")})` : ""}`;
+  }
+
   commentHeader(author, at, t) {
     return h_flex().gap(6).items_center().text_size(12)
       .child(div().font_semibold().text_color(t.foreground).child(author))
@@ -246,7 +251,7 @@ export class PrView {
       .child(h_flex().flex_none().px(16).py(12).gap(10).items_center().border_b(1).border_color(t.border)
         .child(div().flex_none().text_color(t.accent).child(`${repo}#${pr.number}`))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(pr.title ?? ""))
-        .child(div().flex_none().text_size(12).text_color(t.dim).child(`by ${pr.author ?? "?"}`))
+        .child(div().flex_none().text_size(12).text_color(t.dim).child(this.byline(pr)))
         .when(this.files.length > 0, (e) => e
           .child(div().flex_none().text_size(12).text_color(t.muted).child(`${this.files.length} files`))
           .child(div().flex_none().text_size(12).text_color(t.ansi2).child(`+${add}`))
