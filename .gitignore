@@ -7,11 +7,13 @@
 !/keys.json
 !/layouts/
 /layouts/*
-!/layouts/my-main.json
+!/layouts/work.json
+!/layouts/personal.json
 !/mods/
 /mods/*
 !/mods/arch-diagrams/
 !/mods/aws-sso/
+!/mods/better-sidebar/
 !/mods/branch-changes/
 !/mods/changes-minimap/
 !/mods/gmail/
