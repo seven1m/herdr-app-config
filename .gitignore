@@ -8,12 +8,10 @@
 !/layouts/
 /layouts/*
 !/layouts/work.json
-!/layouts/personal.json
 !/mods/
 /mods/*
 !/mods/arch-diagrams/
 !/mods/aws-sso/
-!/mods/better-sidebar/
 !/mods/branch-changes/
 !/mods/changes-minimap/
 !/mods/gmail/

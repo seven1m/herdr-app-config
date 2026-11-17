@@ -1,4 +1,4 @@
-# Work and Personal
+# Work
 
 Herdr's default layout with a personal dashboard added: a toggleable right column shows today's calendar, unread Gmail, Linear issues and GitHub PRs, and the status bar shows what's playing and how long the AWS SSO session has left.
 
@@ -6,7 +6,7 @@ Herdr's default layout with a personal dashboard added: a toggleable right colum
 
 ## What you see
 
-- **Sidebar (left, 268px):** `personal` uses Better Sidebar's combined Spaces/Agents tabs, with chats and terminals nested under spaces. `work` uses the shipped spaces and agents lists. Both keep the `workspace-chrome` brand and footer.
+- **Sidebar (left, 268px):** `work` uses the shipped spaces and agents lists, with the `workspace-chrome` brand and footer.
 - **Work area:** `tabs` (42px), the active tab's panes, then a 28px status row.
 - **Files panel (368px, hidden by default):** Herdr's shipped `files` and `changes` mods in a stack.
 - **Dashboard column, `linear-panel` (420px, hidden by default),** top to bottom:
@@ -17,7 +17,7 @@ Herdr's default layout with a personal dashboard added: a toggleable right colum
 
 ## How it behaves
 
-Personal uses Better Sidebar for space and agent navigation; Work uses Herdr's shipped lists. Pane headers use the shipped `pane` mod.
+Work uses Herdr's shipped lists for space and agent navigation. Pane headers use the shipped `pane` mod.
 
 - `cmd-alt-b` toggles the dashboard column and `cmd-b` toggles the sidebar. The rest of `keys.json` is macOS-style tab, pane and space bindings.
 - **Calendar:** folds to its header. The settings icon picks calendars; by default all show except holidays and birthdays.
@@ -29,11 +29,10 @@ Personal uses Better Sidebar for space and agent navigation; Work uses Herdr's s
 
 ## Built from
 
-- **Layout:** `layouts/work.json` and `layouts/personal.json`, cloned from Herdr's `main` 0.1.11.
+- **Layout:** `layouts/work.json`, cloned from Herdr's `main` 0.1.11.
 - **Shipped mods:** `workspace-chrome`, `spaces`, `agents`, `tabs`, `pane`, `files`, `changes`, `workspace-status`.
-- **Custom mods:** `better-sidebar` (munza/herdr-mods, version 3.3.0), `mac-calendar`, `gmail`, `linear`, `my-prs`, `now-playing`, `aws-sso`.
+- **Custom mods:** `mac-calendar`, `gmail`, `linear`, `my-prs`, `now-playing`, `aws-sso`.
 - **Programs and network:**
-  - `better-sidebar` reads repository metadata with Git and queries GitHub PR status using local `gh` authentication.
   - `mac-calendar` runs `sqlite3` on the macOS Calendar database.
   - `gmail` runs `/usr/bin/python3` (`fetch.py`), which connects to `imap.gmail.com`.
   - `linear` calls `api.linear.app`.
@@ -57,11 +56,11 @@ Personal uses Better Sidebar for space and agent navigation; Work uses Herdr's s
 - **My PRs:** needs `gh auth login`. The AI summary uses `apiKey` from `~/.config/herdr-app/my-prs.json`, else `$ANTHROPIC_API_KEY`, else the `ant` CLI login (`antProfile` in that file picks the profile). Its prompt is `mods/my-prs/summary-prompt.md`, overridden by `~/.config/herdr-app/my-prs-prompt.md`.
 - **macOS only:** `mac-calendar`, `now-playing` and the Gmail mod's link opening.
 - **`keys.json`:** merge it into your own, and ask before replacing keys already in use.
-- **Install by checking this repo out as `~/.config/herdr-app` itself,** not as symlinks into it: Herdr (seen on 0.1.12) draws no `svg()` image whose path goes through a symlink. With an existing Herdr home, run `git init`, `git remote add origin <url>`, `git fetch` and `git checkout -f main` inside it (this overwrites your `settings.json`, `keys.json` and `layouts/work.json` and `layouts/personal.json`, so back them up first). The `.gitignore` is an allowlist, so Herdr's own files and secrets in that folder stay untracked; add a new mod's folder to it.
+- **Install by checking this repo out as `~/.config/herdr-app` itself,** not as symlinks into it: Herdr (seen on 0.1.12) draws no `svg()` image whose path goes through a symlink. With an existing Herdr home, run `git init`, `git remote add origin <url>`, `git fetch` and `git checkout -f main` inside it (this overwrites your `settings.json`, `keys.json` and `layouts/work.json`, so back them up first). The `.gitignore` is an allowlist, so Herdr's own files and secrets in that folder stay untracked; add a new mod's folder to it.
 
 ## Done when
 
 - `herdr-app check` passes for each custom mod.
-- `layout.switch {name: "personal"}` shows the sidebar, tabs and status row.
+- `layout.switch {name: "work"}` shows the sidebar, tabs and status row.
 - `cmd-alt-b` shows and hides the dashboard column.
 - Each panel shows data or a clear setup error rather than a blank block.
