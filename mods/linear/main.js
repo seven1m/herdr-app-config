@@ -42,6 +42,12 @@ async function fetchLinked(apiKey, known) {
 // Issue -> Herdr space links, by issue identifier: { "TEAM-123": "<space id>" }. A space named
 // "<identifier>" or "<identifier> …" counts too, so links survive a lost id and can be made by hand.
 const SPACES_KEY = "linear.spaces";
+const ACTIVE_PRS_KEY = "linear.activePrs";
+
+function prKey(url) {
+  const m = url?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i);
+  return m ? `${m[1].toLowerCase()}#${m[2]}` : null;
+}
 
 function spaceFor(issue) {
   const map = shared(SPACES_KEY) ?? {}, all = spaces(), ident = issue.identifier;
@@ -302,8 +308,17 @@ export default class Linear extends View {
     return this.issues.length ? "No issues match these filters" : "No open issues assigned to you";
   }
 
+  // The pull requests attached to the shown space's issues, as "owner/repo#123", for my-prs to highlight.
+  publishActivePrs() {
+    const keys = this.issues.filter((i) => spaceFor(i)?.active).flatMap((i) => i.prs ?? []).map((pr) => prKey(pr.url)).filter(Boolean);
+    const value = JSON.stringify(keys);
+    if (value === JSON.stringify(shared(ACTIVE_PRS_KEY) ?? [])) return;
+    setShared(ACTIVE_PRS_KEY, keys);
+  }
+
   render() {
     if (this.form) return this.form.render();
+    this.publishActivePrs();
     const t = theme(), list = byState(filterIssues(this.issues, { status: this.status, text: this.text }));
     const searching = this.text.trim().length >= SEARCH_MIN, shownIds = new Set(list.map((i) => i.id));
     const results = searching ? filterIssues(this.results, { status: this.status, text: "" }).filter((i) => !shownIds.has(i.id)) : [];

@@ -1,8 +1,8 @@
 // Open GitHub pull requests: ones waiting on your review, and your own, with CI and review state.
 // Data comes from the `gh` CLI, so it uses your existing `gh auth login`; no token is stored here.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
-import { exec, theme, home, props, openOverlay, nextCommand } from "herdr";
+import { v_flex, h_flex, ScrollHandle } from "gpui-base";
+import { exec, theme, home, props, openOverlay, nextCommand, shared } from "herdr";
 import { QUERY, MINE, REVIEW, parseResponse, safeUrl, ago } from "./prs.js";
 import { PrView, VIEW_WIDTH, VIEW_HEIGHT } from "./view.js";
 
@@ -42,6 +42,7 @@ export default class MyPrs extends View {
   init(_props, cx) {
     if (props()?.dialog === "view") { this.form = new PrView(); return this.form.init(cx); }
     this.mine = []; this.review = []; this.loading = false; this.generation = 0;
+    this.scroll = ScrollHandle.new();
     this.refresh(cx);
     cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
     // The view dialog sends "refresh" (run("my-prs.refresh")) after approving.
@@ -85,9 +86,10 @@ export default class MyPrs extends View {
       .child("View");
   }
 
-  row(pr, t, showAuthor) {
+  row(pr, t, showAuthor, linked) {
     const repo = pr.repo.split("/").pop();
     return v_flex().id(`pr-${pr.id}`).flex_none().px(10).py(7).gap(3).rounded(7).cursor_pointer()
+      .when(linked.has(`${pr.repo.toLowerCase()}#${pr.number}`), (e) => e.bg(t.selected))
       .hover((s) => s.bg(t.hover)).on_click(() => openUrl(pr.url))
       .child(div().whitespace_normal().text_color(t.foreground).child(pr.title))
       .child(h_flex().gap(8).items_start().text_size(11).text_color(t.dim)
@@ -102,19 +104,37 @@ export default class MyPrs extends View {
         .child(div().flex_none().child(ago(pr.updatedAt))));
   }
 
-  section(id, title, prs, empty, t, showAuthor) {
-    return v_flex().flex_none().gap(2)
-      .child(h_flex().px(10).pt(6).pb(2).gap(6).items_center().text_size(11)
+  // Flat rows (header, PRs or an empty note) so the list's ScrollHandle can reach each PR by index.
+  section(id, title, prs, empty, t, showAuthor, linked) {
+    return [
+      h_flex().px(10).pt(6).pb(2).gap(6).items_center().text_size(11)
         .child(div().text_color(t.muted).font_semibold().child(title))
-        .child(div().text_color(t.dim).child(String(prs.length))))
-      .children(prs.map((pr) => this.row(pr, t, showAuthor)))
-      .when(!prs.length, (e) => e.child(div().id(`${id}-empty`).px(10).py(4).text_size(11).text_color(t.dim)
-        .child(!this.loaded && !this.error ? "Loading…" : empty)));
+        .child(div().text_color(t.dim).child(String(prs.length))),
+      ...prs.map((pr) => this.row(pr, t, showAuthor, linked)),
+      ...(prs.length ? [] : [div().id(`${id}-empty`).px(10).py(4).text_size(11).text_color(t.dim)
+        .child(!this.loaded && !this.error ? "Loading…" : empty)]),
+    ];
   }
 
   render(cx) {
     if (this.form) return this.form.render(cx);
     const t = theme();
+    // Set by the linear mod: PRs attached to the shown space's Linear issue.
+    const keys = shared("linear.activePrs") ?? [];
+    const linked = new Set(keys);
+    const rows = [
+      ...(this.error ? [div().p(8).text_size(12).text_color(t.ansi1).child(this.error)] : []),
+      ...this.section("review", "Review requested", this.review, "Nothing waiting on you", t, true, linked),
+      ...this.section("mine", "Mine", this.mine, "No open PRs", t, false, linked),
+    ];
+    const isLinked = (pr) => linked.has(`${pr.repo.toLowerCase()}#${pr.number}`);
+    const top = this.error ? 1 : 0;
+    const inReview = this.review.findIndex(isLinked), inMine = this.mine.findIndex(isLinked);
+    const index = inReview >= 0 ? top + 1 + inReview
+      : inMine >= 0 ? top + 1 + Math.max(this.review.length, 1) + 1 + inMine : -1;
+    const target = index >= 0 ? `${JSON.stringify(keys)} ${index}` : null;
+    if (target && target !== this.revealed) this.scroll.scroll_to_item(index);
+    this.revealed = target;
     return v_flex().id("my-prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
@@ -123,9 +143,7 @@ export default class MyPrs extends View {
         .child(div().id("prs-refresh").size(26).flex().items_center().justify_center().rounded(7).cursor_pointer().text_color(t.muted)
           .tooltip("Refresh").hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.refresh(cx, true))
           .child(svg("mods/my-prs/refresh.svg").size(13).when(this.loading && this.manual, (e) => e.spin(900)))))
-      .child(v_flex().id("prs-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(6)
-        .when(Boolean(this.error), (e) => e.child(div().p(8).text_size(12).text_color(t.ansi1).child(this.error ?? "")))
-        .child(this.section("review", "Review requested", this.review, "Nothing waiting on you", t, true))
-        .child(this.section("mine", "Mine", this.mine, "No open PRs", t, false)));
+      .child(v_flex().id("prs-list").flex_1().min_h(0).overflow_y_scrollbar().track_scroll(this.scroll).p(6).gap(2)
+        .children(rows));
   }
 }
