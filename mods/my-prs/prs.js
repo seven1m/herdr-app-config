@@ -11,7 +11,7 @@ fragment pr on PullRequest {
   author { login }
   assignees(first: 5) { nodes { login } }
   repository { nameWithOwner viewerDefaultMergeMethod }
-  reviews(states: APPROVED) { totalCount }
+  reviews(states: APPROVED, first: 50) { totalCount nodes { author { login } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
 }`;
 
@@ -28,12 +28,20 @@ const CI = {
 };
 
 const REVIEW_LABELS = {
-  APPROVED: { label: "Approved", color: "ansi2" },
   CHANGES_REQUESTED: { label: "Changes requested", color: "ansi1" },
   REVIEW_REQUIRED: { label: "Needs review", color: "muted" },
 };
 
+// Changes requested wins over approvals. Repos without required reviews have no decision: approvals or no tag.
+function reviewLabel(decision, approvers) {
+  if (decision === "CHANGES_REQUESTED") return REVIEW_LABELS.CHANGES_REQUESTED;
+  if (approvers.length) return { label: `Approvals: ${approvers.join(", ")}`, color: "ansi2" };
+  if (decision) return REVIEW_LABELS.REVIEW_REQUIRED;
+  return null;
+}
+
 function parsePr(n) {
+  const approvers = [...new Set((n.reviews?.nodes ?? []).map((r) => r?.author?.login).filter(Boolean))];
   const ci = n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
   return {
     id: n.id, number: n.number, title: n.title ?? "", url: n.url, draft: Boolean(n.isDraft),
@@ -41,7 +49,7 @@ function parsePr(n) {
     assignees: (n.assignees?.nodes ?? []).map((a) => a?.login).filter(Boolean),
     approvals: n.reviews?.totalCount ?? 0, mergeMethod: n.repository?.viewerDefaultMergeMethod ?? "MERGE",
     ci: ci ? CI[ci] ?? { label: ci.toLowerCase(), color: "dim" } : null,
-    review: REVIEW_LABELS[n.reviewDecision] ?? null,
+    review: reviewLabel(n.reviewDecision, approvers),
   };
 }
 
