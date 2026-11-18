@@ -22,32 +22,14 @@
           "window_drag": true
         },
         {
-          "id": "sidebar-lists",
-          "type": "column",
-          "children": [
-            {
-              "id": "spaces",
-              "type": "block",
-              "content": {
-                "mod": "spaces"
-              },
-              "size": {
-                "weight": 1
-              },
-              "min": 90
-            },
-            {
-              "id": "agents",
-              "type": "block",
-              "content": {
-                "mod": "agents"
-              },
-              "size": {
-                "weight": 1
-              },
-              "min": 90
-            }
-          ]
+          "id": "space-tree",
+          "type": "block",
+          "content": {
+            "mod": "space-tree"
+          },
+          "size": {
+            "weight": 1
+          }
         },
         {
           "id": "sidebar-footer",

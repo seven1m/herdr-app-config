@@ -19,6 +19,7 @@
 !/mods/mac-calendar/
 !/mods/my-prs/
 !/mods/now-playing/
+!/mods/space-tree/
 # Editor type stubs Herdr writes; never commit secrets even inside an allowed folder.
 jsconfig.json
 *.d.ts
