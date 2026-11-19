@@ -104,13 +104,9 @@ export const ISSUE_QUERY = `query Issue($id: String!) {
 }`;
 
 const IDENT = /^([A-Z][A-Z0-9]*-\d+)(?:\s|$)/;
-// Identifiers of issues linked to a space that still exists: by the link table ({ ident: space id })
-// or by a space named "<identifier>" or "<identifier> …".
-export function linkedIdentifiers(map, spaces) {
-  const ids = new Set(spaces.map((s) => s.id)), idents = new Set();
-  for (const [ident, id] of Object.entries(map ?? {})) if (ids.has(id)) idents.add(ident);
-  for (const s of spaces) { const m = s.named && s.name?.match(IDENT); if (m) idents.add(m[1]); }
-  return [...idents];
+// Identifiers of issues with a space, i.e. a space named "<identifier>" or "<identifier> …".
+export function linkedIdentifiers(spaces) {
+  return [...new Set(spaces.map((s) => s.named && s.name?.match(IDENT)?.[1]).filter(Boolean))];
 }
 
 export const isOpen = (issue) => !["completed", "canceled", "duplicate"].includes(issue.stateType);

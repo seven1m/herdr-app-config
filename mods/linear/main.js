@@ -34,14 +34,11 @@ async function fetchIssues(apiKey) {
 // Fetched one by one: a deleted issue fails alone.
 async function fetchLinked(apiKey, known) {
   const have = new Set(known.map((i) => i.identifier));
-  const missing = linkedIdentifiers(shared(SPACES_KEY), spaces()).filter((ident) => !have.has(ident));
+  const missing = linkedIdentifiers(spaces()).filter((ident) => !have.has(ident));
   const found = await Promise.all(missing.map((id) => gql(apiKey, ISSUE_QUERY, { id }).then((d) => d.issue && parseNode(d.issue)).catch(() => null)));
   return found.filter(Boolean);
 }
 
-// Issue -> Herdr space links, by issue identifier: { "TEAM-123": "<space id>" }. A space named
-// "<identifier>" or "<identifier> …" counts too, so links survive a lost id and can be made by hand.
-const SPACES_KEY = "linear.spaces";
 const ACTIVE_PRS_KEY = "linear.activePrs";
 
 function prKey(url) {
@@ -49,13 +46,10 @@ function prKey(url) {
   return m ? `${m[1].toLowerCase()}#${m[2]}` : null;
 }
 
+// An issue's space is the one named "<identifier>" or "<identifier> …".
 function spaceFor(issue) {
-  const map = shared(SPACES_KEY) ?? {}, all = spaces(), ident = issue.identifier;
-  const byId = all.find((s) => s.id === map[ident]);
-  if (byId) return byId;
-  const byName = all.find((s) => s.named && (s.name === ident || s.name.startsWith(`${ident} `)));
-  if (byName) setShared(SPACES_KEY, { ...map, [ident]: byName.id });
-  return byName ?? null;
+  const ident = issue.identifier;
+  return spaces().find((s) => s.named && (s.name === ident || s.name.startsWith(`${ident} `))) ?? null;
 }
 
 // A space's avatar color, as the spaces mod draws it (mods/spaces/main.js keeps the same table).
