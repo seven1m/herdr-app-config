@@ -3,7 +3,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, ScrollHandle } from "gpui-base";
-import { spaces, agents, panes, run, openOverlay, theme, shared, setShared, setAgentOrder, layout } from "herdr";
+import { spaces, agents, machines, run, openOverlay, theme, shared, setShared, setAgentOrder, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -146,6 +146,34 @@ export default class SpaceTree extends View {
         .when(Boolean(urgent), (el) => el.child(div().absolute().right(1).top(1).child(this.indicator(t, urgent)))));
   }
 
+  // A machine's header, shown once any machine besides this computer is known. Clicking folds it.
+  machineRow(t, m, collapsed) {
+    const key = `machine:${m.name ?? ""}`, folded = this.folded.has(key), ready = !m.name || m.layout === "ready";
+    const label = m.name ?? "This computer";
+    const icon = svg(`mods/space-tree/${m.name ? "server" : "monitor"}.svg`).size(13).flex_none();
+    if (collapsed) {
+      return h_flex().flex_none().justify_center().mt(4).child(h_flex().id(`machine-${m.name ?? "local"}`).relative().w(32).h(24).rounded(6)
+        .justify_center().items_center().text_color(t.dim).cursor_pointer().hover((h) => h.bg(t.hover))
+        .tooltip(m.name ? `${label} · ${m.layout}` : label)
+        .on_click((_e, cx) => this.toggle(key, cx))
+        .child(icon)
+        .when(Boolean(m.name), (el) => el.child(div().absolute().right(7).bottom(4).size(6).rounded(3).bg(ready ? t.ansi2 : t.dim))));
+    }
+    return h_flex().id(`machine-${m.name ?? "local"}`).h(26).mt(4).px(8).gap(7).flex_none().items_center().rounded(6)
+      .text_size(11).text_color(t.dim).cursor_pointer().hover((h) => h.bg(t.hover))
+      .on_click((_e, cx) => this.toggle(key, cx))
+      .child(icon)
+      .child(div().flex_1().min_w(0).truncate().child(label))
+      .when(!ready, (el) => el.child(div().flex_none().child(m.layout === "loading" ? "loading…" : "offline")))
+      .when(ready, (el) => el.child(div().id(`machine-add-${m.name ?? "local"}`).flex_none().px(4).rounded(4)
+        .hover((h) => h.bg(t.hover).text_color(t.foreground))
+        .tooltip(`New space on ${label}`)
+        .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { machine: m.name ?? "" }); })
+        .child("+")))
+      .child(div().size(6).rounded(3).flex_none().bg(ready ? t.ansi2 : t.dim))
+      .child(svg(`mods/space-tree/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none());
+  }
+
   render() {
     const t = theme();
     const collapsed = narrow();
@@ -159,19 +187,27 @@ export default class SpaceTree extends View {
     const order = [];
     const rows = [];
     let activeAt = -1;
-    for (const s of sp) {
-      const mine = all.filter((a) => a.space === s.id);
-      if (s.active) activeAt = rows.length;
-      if (collapsed) {
-        rows.push(this.railRow(t, s, colors[s.id], mine));
-        order.push(...mine.map((a) => a.address));
-        continue;
-      }
-      rows.push(this.spaceRow(t, s, colors[s.id], mine));
-      if (this.folded.has(s.id)) continue;
-      for (const a of mine) {
-        rows.push(this.agentRow(t, a, tabs.get(a.tab), perTab.get(a.tab) > 1));
-        order.push(a.address);
+    const known = machines();
+    const names = [...new Set([...known.map((m) => m.name), ...sp.map((s) => s.machine ?? null)].filter(Boolean))].sort();
+    const groups = [null, ...names].map((name) => ({ name, layout: known.find((m) => m.name === name)?.layout ?? (name ? "unavailable" : "ready") }));
+    const headers = names.length > 0;
+    for (const m of groups) {
+      if (headers) rows.push(this.machineRow(t, m, collapsed));
+      if (headers && this.folded.has(`machine:${m.name ?? ""}`)) continue;
+      for (const s of sp.filter((s) => (s.machine ?? null) === m.name)) {
+        const mine = all.filter((a) => a.space === s.id);
+        if (s.active) activeAt = rows.length;
+        if (collapsed) {
+          rows.push(this.railRow(t, s, colors[s.id], mine));
+          order.push(...mine.map((a) => a.address));
+          continue;
+        }
+        rows.push(this.spaceRow(t, s, colors[s.id], mine));
+        if (this.folded.has(s.id)) continue;
+        for (const a of mine) {
+          rows.push(this.agentRow(t, a, tabs.get(a.tab), perTab.get(a.tab) > 1));
+          order.push(a.address);
+        }
       }
     }
     setAgentOrder(order);
