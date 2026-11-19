@@ -3,15 +3,18 @@
 // removed, gray for context. The header's Changes button opens or closes the Changes panel.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, run, layout } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, run, layout, props, openOverlay } from "herdr";
+import { OptionsForm, options, OPTIONS_WIDTH, OPTIONS_HEIGHT } from "./options.js";
 
 function location() {
+  const { folder } = options();
+  if (folder) return { cwd: folder, on: null };
   const space = spaces().find((s) => s.active), f = focused();
   const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
   const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
   return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
 }
-const key = () => JSON.stringify(location());
+const key = () => JSON.stringify([location(), options()]);
 function find(node, id) {
   if (node?.id === id) return node;
   for (const child of node?.children ?? []) {
@@ -30,14 +33,19 @@ function changesShown() {
 // Reads write nothing under .git, so the folder watch doesn't trigger the next refresh.
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 
-// Same base as branch-changes: the merge base of HEAD and origin/HEAD (else origin/main, origin/master, main, master).
-async function branchBase(git) {
-  const head = await git(["rev-parse", "--abbrev-ref", "origin/HEAD"]);
-  const refs = [...(head.code === 0 && head.stdout.trim() !== "origin/HEAD" ? [head.stdout.trim()] : []), "origin/main", "origin/master", "main", "master"];
+// The merge base of `head` and the chosen base ref, else (like branch-changes) the first of origin/HEAD,
+// origin/main, origin/master, main and master that exists.
+async function branchBase(git, chosen, head) {
+  if (chosen) {
+    const found = await git(["rev-parse", "--verify", "--quiet", `${chosen}^{commit}`]);
+    if (found.code !== 0) throw new Error(`Unknown base: ${chosen}`);
+  }
+  const origin = chosen ? null : await git(["rev-parse", "--abbrev-ref", "origin/HEAD"]);
+  const refs = chosen ? [chosen] : [...(origin.code === 0 && origin.stdout.trim() !== "origin/HEAD" ? [origin.stdout.trim()] : []), "origin/main", "origin/master", "main", "master"];
   for (const ref of refs) {
     const found = await git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
     if (found.code !== 0) continue;
-    const base = await git(["merge-base", ref, "HEAD"]);
+    const base = await git(["merge-base", ref, head]);
     if (base.code === 0 && base.stdout.trim()) return { sha: base.stdout.trim(), name: ref.replace(/^origin\//, "") };
   }
   return null;
@@ -78,6 +86,7 @@ function parseDiff(text) {
 
 export default class ChangesMinimap extends View {
   init(_props, cx) {
+    if (props()?.dialog === "options") { this.form = new OptionsForm(); return this.form.init(); }
     this.files = []; this.rows = []; this.sizes = []; this.diffText = null;
     this.refresh(cx);
     cx.timer.every(10000, (cx) => this.refresh(cx));
@@ -111,15 +120,20 @@ export default class ChangesMinimap extends View {
         if (key() !== context) return;
         if (top.code !== 0) { this.root = null; this.setFiles([]); this.error = "Not a git repository"; return; }
         const root = top.stdout.trim(), git = (args) => exec("git", [...READ, ...args], { cwd: root, on });
-        const head = await git(["rev-parse", "--verify", "HEAD"]);
-        const base = head.code === 0 ? await branchBase(git) : null;
-        const diff = head.code === 0
-          ? await git(["diff", base?.sha ?? "HEAD", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames"])
-          : await git(["diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames"]);
+        const opts = options(), headRef = opts.head || "HEAD";
+        const head = await git(["rev-parse", "--verify", "--quiet", `${headRef}^{commit}`]);
+        if (head.code !== 0 && opts.head) throw new Error(`Unknown head: ${opts.head}`);
+        const base = head.code === 0 ? await branchBase(git, opts.base, headRef) : null;
+        if (opts.base && !base) throw new Error(`No merge base between ${opts.base} and ${headRef}`);
+        const flags = ["--no-ext-diff", "--no-textconv", "--no-color", "--no-renames"];
+        // A head ref compares commits only; the working tree (no head ref) adds uncommitted and untracked files.
+        const diff = opts.head ? await git(["diff", base?.sha ?? `${headRef}^`, headRef, ...flags])
+          : head.code === 0 ? await git(["diff", base?.sha ?? "HEAD", ...flags])
+          : await git(["diff", "--cached", ...flags]);
         if (diff.code !== 0) throw new Error(diff.stderr);
-        const status = await git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
-        if (status.code !== 0) throw new Error(status.stderr);
-        const untracked = status.stdout.split("\0").filter((e) => e.startsWith("?? ")).map((e) => e.slice(3)).slice(0, MAX_UNTRACKED);
+        const status = opts.head ? null : await git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+        if (status && status.code !== 0) throw new Error(status.stderr);
+        const untracked = status ? status.stdout.split("\0").filter((e) => e.startsWith("?? ")).map((e) => e.slice(3)).slice(0, MAX_UNTRACKED) : [];
         // Untracked files are read each time; the rest only re-parse when the diff text changes.
         const texts = await Promise.all(untracked.map((path) => readTextFile(`${root}/${path}`, { on }).catch(() => null)));
         if (key() !== context) return;
@@ -188,28 +202,41 @@ export default class ChangesMinimap extends View {
     return this.baseName ? `No changes vs ${this.baseName}` : "No uncommitted changes";
   }
 
+  openOptions() {
+    openOverlay({ mod: "changes-minimap", kind: "popup", width: OPTIONS_WIDTH, height: OPTIONS_HEIGHT, props: { dialog: "options" } });
+  }
+
   render(cx) {
+    if (this.form) return this.form.render();
     if (key() !== this.context) this.refresh(cx);
     const t = theme(), add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
-    const shown = changesShown();
+    const shown = changesShown(), opts = options(), custom = Boolean(opts.folder || opts.base || opts.head);
+    const vs = this.baseName ? (opts.head ? `${this.baseName}…${opts.head}` : `vs ${this.baseName}`) : "";
+    const place = opts.folder ? opts.folder.replace(/\/+$/, "").split("/").pop() : null;
+    const compare = [place, vs].filter(Boolean).join(" · ") || "Working tree";
     return v_flex().id("changes-minimap").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
-      .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().font_semibold().child("Minimap"))
-        .when(Boolean(this.baseName), (e) => e.child(div().text_size(11).text_color(t.dim).child(`vs ${this.baseName}`)))
-        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${this.files.length} files`))
-        .child(div().flex_1())
-        .child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`))
-        .child(h_flex().id("open-changes").h(24).px(7).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(11)
+      .child(h_flex().h(42).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
+        .child(div().flex_none().font_semibold().child("Minimap"))
+        .child(div().id("minimap-compare").flex_1().min_w(0).truncate().text_size(11).text_color(custom ? t.accent : t.dim).tooltip(compare).child(compare))
+        .child(div().id("minimap-options").size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .text_color(custom ? t.accent : t.muted).tooltip("Options")
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click(() => this.openOptions()).child(svg("mods/changes-minimap/settings.svg").size(13)))
+        .child(h_flex().id("open-changes").size(24).flex_none().justify_center().tooltip("Changes").items_center().rounded(6).cursor_pointer()
           .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted).border_1().border_color(t.border)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click(() => this.toggleChanges()).child(svg("mods/changes-minimap/changes.svg").size(12)).child("Changes")))
+          .on_click(() => this.toggleChanges()).child(svg("mods/changes-minimap/changes.svg").size(12))))
       .when(!this.files.length, (e) => e.child(div().p(12).text_size(12).text_color(this.error ? t.ansi1 : t.dim).child(this.emptyText())))
       .when(this.files.length > 0, (e) => e.child(div().flex_1().min_h(0).relative().py(6)
         .child(v_virtual_list("minimap-rows", this.rows.length, this.sizes, (i) => this.rows[i].key,
           (range) => this.rows.slice(range.start, range.end).map((r) => this.row(r, t)))
           .size_full())
         .child(Scrollbar.vertical("minimap-rows").viewport_from_layout().absolute().inset_0())))
-      .when(Boolean(this.truncated), (e) => e.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Diff too large; showing the start")));
+      .when(Boolean(this.truncated), (e) => e.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Diff too large; showing the start")))
+      .child(h_flex().h(28).flex_none().px(12).gap(6).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
+        .child(div().flex_1().child(`${this.files.length} ${this.files.length === 1 ? "file" : "files"}`))
+        .child(div().flex_none().text_color(t.ansi2).child(`+${add}`))
+        .child(div().flex_none().text_color(t.ansi1).child(`−${del}`)));
   }
 }

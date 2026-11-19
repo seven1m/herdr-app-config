@@ -22,14 +22,37 @@
           "window_drag": true
         },
         {
-          "id": "space-tree",
-          "type": "block",
-          "content": {
-            "mod": "space-tree"
-          },
-          "size": {
-            "weight": 1
-          }
+          "id": "sidebar-lists",
+          "type": "column",
+          "resizable": true,
+          "children": [
+            {
+              "id": "space-tree",
+              "type": "block",
+              "content": {
+                "mod": "space-tree"
+              },
+              "size": {
+                "weight": 1
+              },
+              "min": 120
+            },
+            {
+              "id": "changes-minimap",
+              "type": "block",
+              "content": {
+                "mod": "changes-minimap"
+              },
+              "size": {
+                "px": 240
+              },
+              "padding": [
+                8,
+                8
+              ],
+              "min": 100
+            }
+          ]
         },
         {
           "id": "sidebar-footer",
@@ -198,17 +221,6 @@
                   "type": "block",
                   "content": {
                     "mod": "my-prs"
-                  },
-                  "size": {
-                    "weight": 1
-                  },
-                  "min": 160
-                },
-                {
-                  "id": "changes-minimap",
-                  "type": "block",
-                  "content": {
-                    "mod": "changes-minimap"
                   },
                   "size": {
                     "weight": 1
