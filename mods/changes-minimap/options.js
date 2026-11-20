@@ -12,6 +12,23 @@ export function options() {
   return { folder: o.folder || null, base: (o.base ?? "").trim(), head: (o.head ?? "").trim() };
 }
 
+// The header's cycle button: the two presets it steps between, and "custom" for any other base/head.
+const MODES = [
+  { id: "branch", letter: "B", label: "Branch vs default branch", base: "", head: "" },
+  { id: "commit", letter: "C", label: "Last commit", base: "HEAD~1", head: "HEAD" },
+  { id: "uncommitted", letter: "U", label: "Uncommitted changes", base: "HEAD", head: "" },
+];
+
+export function mode() {
+  const { base, head } = options();
+  return MODES.find((m) => m.base === base && m.head === head) ?? { id: "custom", letter: "?", label: "Custom (set in Options)" };
+}
+
+export function cycleMode() {
+  const i = MODES.findIndex((m) => m.id === mode().id), next = MODES[(i + 1) % MODES.length];
+  setShared(OPTIONS_KEY, { ...options(), base: next.base, head: next.head });
+}
+
 const tilde = (path) => (path.startsWith(home()) ? `~${path.slice(home().length)}` : path);
 const expand = (path) => (path === "~" || path.startsWith("~/") ? home() + path.slice(1) : path);
 

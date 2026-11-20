@@ -4,7 +4,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, run, layout, props, openOverlay } from "herdr";
-import { OptionsForm, options, OPTIONS_WIDTH, OPTIONS_HEIGHT } from "./options.js";
+import { OptionsForm, options, mode, cycleMode, OPTIONS_WIDTH, OPTIONS_HEIGHT } from "./options.js";
 
 function location() {
   const { folder } = options();
@@ -211,6 +211,7 @@ export default class ChangesMinimap extends View {
     if (key() !== this.context) this.refresh(cx);
     const t = theme(), add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
     const shown = changesShown(), opts = options(), custom = Boolean(opts.folder || opts.base || opts.head);
+    const current = mode();
     const vs = this.baseName ? (opts.head ? `${this.baseName}…${opts.head}` : `vs ${this.baseName}`) : "";
     const place = opts.folder ? opts.folder.replace(/\/+$/, "").split("/").pop() : null;
     const compare = [place, vs].filter(Boolean).join(" · ") || "Working tree";
@@ -219,6 +220,12 @@ export default class ChangesMinimap extends View {
       .child(h_flex().h(42).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
         .child(div().flex_none().font_semibold().child("Minimap"))
         .child(div().id("minimap-compare").flex_1().min_w(0).truncate().text_size(11).text_color(custom ? t.accent : t.dim).tooltip(compare).child(compare))
+        .child(div().id("minimap-mode").size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .text_size(11).font_semibold().border_1().border_color(t.border)
+          .text_color(current.id === "custom" ? t.accent : t.muted)
+          .tooltip(`${current.label} (click to cycle)`)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click((_e, cx) => { cycleMode(); cx.notify(); }).child(current.letter))
         .child(div().id("minimap-options").size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
           .text_color(custom ? t.accent : t.muted).tooltip("Options")
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
