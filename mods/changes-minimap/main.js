@@ -46,7 +46,7 @@ async function branchBase(git, chosen, head) {
     const found = await git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
     if (found.code !== 0) continue;
     const base = await git(["merge-base", ref, head]);
-    if (base.code === 0 && base.stdout.trim()) return { sha: base.stdout.trim(), name: ref.replace(/^origin\//, "") };
+    if (base.code === 0 && base.stdout.trim()) return { sha: base.stdout.trim(), name: ref };
   }
   return null;
 }
