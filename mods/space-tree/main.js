@@ -59,6 +59,47 @@ export default class SpaceTree extends View {
     cx.notify();
   }
 
+  // Every row of a space takes spaces dragged from its machine; a tab's rows take tabs dragged from
+  // its space. The accent line marks where the dragged one will land.
+  droppable(el, t, s, tab, { head = false, last = false, tabHead = false, tabLast = false } = {}) {
+    const target = (d) => d?.kind === "space" ? ((s.machine ?? null) === d.machine ? s.id : null)
+      : d?.kind === "tab" && tab && d.space === s.id ? tab.id : null;
+    const d = this.drag;
+    const moving = Boolean(d && this.over && this.over !== d.id);
+    let line = null;
+    if (moving && this.over === target(d)) {
+      const list = d.kind === "space" ? spaces() : s.tabs;
+      const down = list.findIndex((x) => x.id === d.id) < list.findIndex((x) => x.id === this.over);
+      const [top, bottom] = d.kind === "space" ? [head, last] : [tabHead, tabLast];
+      if (down && bottom) line = "bottom";
+      else if (!down && top) line = "top";
+    }
+    const dimmed = moving && (d.kind === "space" ? s.id === d.id : tab?.id === d.id);
+    return el.relative()
+      .when(dimmed, (el) => el.opacity(0.5))
+      .when(Boolean(line), (el) => el.child(div().absolute().left(0).right(0).h(2).rounded(1).bg(t.accent)
+        .when(line === "top", (l) => l.top(0))
+        .when(line === "bottom", (l) => l.bottom(0))))
+      .on_mouse_move((_e, cx) => {
+        if (!this.drag) return;
+        const over = target(this.drag);
+        if (over !== this.over) { this.over = over; cx.notify(); }
+      });
+  }
+
+  drop() {
+    const { drag: d, over } = this;
+    this.drag = this.over = null;
+    if (!d || !over || over === d.id) return;
+    if (d.kind === "space") {
+      const i = spaces().findIndex((x) => x.id === over);
+      if (i >= 0) run("space.move", { id: d.id, index: i + 1 });
+    } else {
+      const i = spaces().find((x) => x.id === d.space)?.tabs.findIndex((x) => x.id === over) ?? -1;
+      if (i >= 0) run("tab.move", { id: d.id, index: i + 1 });
+    }
+  }
+
   colors(sp) {
     const current = shared("space.colors") ?? {};
     const ids = new Set(sp.map((s) => s.id));
@@ -86,13 +127,13 @@ export default class SpaceTree extends View {
       .text_size(10.5).font_bold().text_color("#ffffff").child([...s.name][0]?.toUpperCase() ?? "?");
   }
 
-  spaceRow(t, s, color) {
+  spaceRow(t, s, color, last) {
     const folded = this.folded.has(s.id);
     const hidden = folded ? s.tabs : [];
     const urgent = hidden.find((tab) => tab.status === "blocked")?.status
       ?? hidden.find((tab) => tab.status === "done")?.status
       ?? hidden.find((tab) => tab.status === "working")?.status;
-    return h_flex()
+    return this.droppable(h_flex(), t, s, null, { head: true, last })
       .id(`space-${s.id}`)
       .h(30)
       .px(8)
@@ -103,6 +144,7 @@ export default class SpaceTree extends View {
       .cursor_pointer()
       .when(s.active, (el) => el.bg(t.selected))
       .when(!s.active, (el) => el.hover((h) => h.bg(t.hover)))
+      .on_mouse_down("left", () => { this.drag = { kind: "space", id: s.id, machine: s.machine ?? null }; this.over = s.id; })
       .on_click(() => run("space.select", { id: s.id }))
       .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: s.id } } }))
       .child(this.avatar(t, s, color))
@@ -122,7 +164,7 @@ export default class SpaceTree extends View {
           .child(svg(`mods/space-tree/chevron-${folded ? "right" : "down"}.svg`).size(11))));
   }
 
-  tabRow(t, s, tab, lead) {
+  tabRow(t, s, tab, lead, edges) {
     const pic = icon(lead?.program, 14, t.muted);
     const shown = s.active && tab.active;
     const name = tabLabel(tab, lead);
@@ -130,7 +172,7 @@ export default class SpaceTree extends View {
       if (!s.active) run("space.select", { id: s.id });
       run("tab.select", { id: tab.id });
     };
-    return h_flex()
+    return this.droppable(h_flex(), t, s, tab, { tabHead: true, ...edges })
       .id(`tab-${tab.id}`)
       .h(26)
       .pl(35)
@@ -143,7 +185,11 @@ export default class SpaceTree extends View {
       .cursor_pointer()
       .when(shown, (el) => el.bg(t.raised))
       .hover((h) => h.bg(t.hover))
-      .on_mouse_down("left", (e) => { if (e.click_count === 2) run("tab.rename", { id: tab.id }); })
+      .on_mouse_down("left", (e) => {
+        if (e.click_count === 2) run("tab.rename", { id: tab.id });
+        this.drag = { kind: "tab", id: tab.id, space: s.id };
+        this.over = tab.id;
+      })
       .on_click(select)
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: s.id } } }); })
       .when(Boolean(pic), (el) => el.child(pic))
@@ -155,10 +201,10 @@ export default class SpaceTree extends View {
         .child(svg("mods/pane/close.svg").size(12))));
   }
 
-  agentRow(t, a, tab) {
+  agentRow(t, s, a, tab, edges) {
     const pic = icon(a.program, 14, t.foreground);
     const quiet = a.status === "idle" && !a.focused;
-    return h_flex()
+    return this.droppable(h_flex(), t, s, tab, edges)
       .id(`agent-${a.address}`)
       .h(24)
       .pl(57)
@@ -256,14 +302,20 @@ export default class SpaceTree extends View {
           order.push(...mine.map((a) => a.address));
           continue;
         }
-        rows.push(this.spaceRow(t, s, colors[s.id]));
+        const tabs = this.folded.has(s.id) ? [] : s.tabs;
+        rows.push(this.spaceRow(t, s, colors[s.id], tabs.length === 0));
         if (this.folded.has(s.id)) continue;
-        for (const tab of s.tabs) {
+        for (const [ti, tab] of tabs.entries()) {
           const inTab = mine.filter((a) => a.tab === tab.id);
+          const shown = inTab.length > 1 ? inTab : [];
+          const lastTab = ti === tabs.length - 1;
           const lead = ps.find((p) => p.tab === tab.id && p.program?.agent) ?? ps.find((p) => p.tab === tab.id);
-          rows.push(this.tabRow(t, s, tab, lead));
+          rows.push(this.tabRow(t, s, tab, lead, { tabLast: shown.length === 0, last: lastTab && shown.length === 0 }));
           order.push(...inTab.map((a) => a.address));
-          if (inTab.length > 1) rows.push(...inTab.map((a) => this.agentRow(t, a, tab)));
+          rows.push(...shown.map((a, ai) => {
+            const end = ai === shown.length - 1;
+            return this.agentRow(t, s, a, tab, { tabLast: end, last: lastTab && end });
+          }));
         }
       }
     }
@@ -285,6 +337,8 @@ export default class SpaceTree extends View {
           .child(svg("mods/space-tree/plus.svg").size(14))))
       .child(v_flex().id("space-tree-list").flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).gap(1)
         .overflow_y_scrollbar().mode("always").track_scroll(this.scroll)
+        .on_mouse_up("left", (_e, cx) => { this.drop(); cx.notify(); })
+        .on_hover((hovered, cx) => { if (!hovered && this.drag) { this.drag = this.over = null; cx.notify(); } })
         .children(rows));
   }
 }
