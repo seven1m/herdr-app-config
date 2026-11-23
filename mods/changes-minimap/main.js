@@ -53,7 +53,7 @@ async function branchBase(git, chosen, head) {
 
 const LINE = 3, BAR = 2, HUNK_GAP = 4, FILE_GAP = 8, HEADER = 15;
 const CHAR_PX = 1.6, MAX_COLS = 200, TAB = 4;
-const MAX_ROWS = 30000, MAX_FILE_LINES = 3000, MAX_UNTRACKED = 200;
+const MAX_ROWS = 30000, MAX_FILE_LINES = 3000, MAX_UNTRACKED = 200, MAX_FILES = 100, MAX_LINES = 10000;
 
 // Leading whitespace and visible length, in columns.
 function shape(text) {
@@ -127,13 +127,28 @@ export default class ChangesMinimap extends View {
         if (opts.base && !base) throw new Error(`No merge base between ${opts.base} and ${headRef}`);
         const flags = ["--no-ext-diff", "--no-textconv", "--no-color", "--no-renames"];
         // A head ref compares commits only; the working tree (no head ref) adds uncommitted and untracked files.
-        const diff = opts.head ? await git(["diff", base?.sha ?? `${headRef}^`, headRef, ...flags])
-          : head.code === 0 ? await git(["diff", base?.sha ?? "HEAD", ...flags])
-          : await git(["diff", "--cached", ...flags]);
-        if (diff.code !== 0) throw new Error(diff.stderr);
+        const range = opts.head ? [base?.sha ?? `${headRef}^`, headRef] : head.code === 0 ? [base?.sha ?? "HEAD"] : ["--cached"];
         const status = opts.head ? null : await git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
         if (status && status.code !== 0) throw new Error(status.stderr);
-        const untracked = status ? status.stdout.split("\0").filter((e) => e.startsWith("?? ")).map((e) => e.slice(3)).slice(0, MAX_UNTRACKED) : [];
+        const allUntracked = status ? status.stdout.split("\0").filter((e) => e.startsWith("?? ")).map((e) => e.slice(3)) : [];
+        // Count first: a huge change set (a vendored dependency, a mass rename) isn't worth reading and drawing.
+        const numstat = await git(["diff", "--numstat", ...range, ...flags]);
+        if (numstat.code !== 0) throw new Error(numstat.stderr);
+        const stats = numstat.stdout.split("\n").filter(Boolean).map((l) => l.split("\t"));
+        const count = stats.length + allUntracked.length;
+        const add = stats.reduce((n, [a]) => n + (Number(a) || 0), 0), del = stats.reduce((n, [, d]) => n + (Number(d) || 0), 0);
+        if (key() !== context) return;
+        if (count > MAX_FILES || add + del > MAX_LINES) {
+          this.root = root; this.on = on; this.baseName = base?.name ?? null; this.error = null;
+          this.watch(root, cx);
+          this.diffText = null;
+          this.setFiles([]);
+          this.tooMany = { count, add, del, why: count > MAX_FILES ? `${count} changed files` : `${(add + del).toLocaleString()} changed lines` };
+          return;
+        }
+        const diff = await git(["diff", ...range, ...flags]);
+        if (diff.code !== 0) throw new Error(diff.stderr);
+        const untracked = allUntracked.slice(0, MAX_UNTRACKED);
         // Untracked files are read each time; the rest only re-parse when the diff text changes.
         const texts = await Promise.all(untracked.map((path) => readTextFile(`${root}/${path}`, { on }).catch(() => null)));
         if (key() !== context) return;
@@ -169,7 +184,7 @@ export default class ChangesMinimap extends View {
         push({ ...r, file: f, key: `${f}:${i}` }, r.kind === "gap" ? HUNK_GAP : LINE);
       });
     });
-    this.files = files; this.rows = rows; this.sizes = sizes;
+    this.files = files; this.rows = rows; this.sizes = sizes; this.tooMany = null;
     this.truncated = rows.length >= MAX_ROWS;
   }
 
@@ -199,6 +214,7 @@ export default class ChangesMinimap extends View {
   emptyText() {
     if (this.error) return this.error;
     if (!this.root) return this.loading ? "Loading…" : "No folder";
+    if (this.tooMany) return `${this.tooMany.why} is too many to draw; open Changes to see them`;
     return this.baseName ? `No changes vs ${this.baseName}` : "No uncommitted changes";
   }
 
@@ -209,7 +225,9 @@ export default class ChangesMinimap extends View {
   render(cx) {
     if (this.form) return this.form.render();
     if (key() !== this.context) this.refresh(cx);
-    const t = theme(), add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
+    const t = theme(), many = this.tooMany;
+    const add = many?.add ?? this.files.reduce((n, f) => n + f.add, 0), del = many?.del ?? this.files.reduce((n, f) => n + f.del, 0);
+    const count = many?.count ?? this.files.length;
     const shown = changesShown(), opts = options(), custom = Boolean(opts.folder || opts.base || opts.head);
     const current = mode();
     const vs = this.baseName ? (opts.head ? `${this.baseName}…${opts.head}` : `vs ${this.baseName}`) : "";
@@ -242,7 +260,7 @@ export default class ChangesMinimap extends View {
         .child(Scrollbar.vertical("minimap-rows").viewport_from_layout().absolute().inset_0())))
       .when(Boolean(this.truncated), (e) => e.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Diff too large; showing the start")))
       .child(h_flex().h(28).flex_none().px(12).gap(6).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
-        .child(div().flex_1().child(`${this.files.length} ${this.files.length === 1 ? "file" : "files"}`))
+        .child(div().flex_1().child(`${count} ${count === 1 ? "file" : "files"}`))
         .child(div().flex_none().text_color(t.ansi2).child(`+${add}`))
         .child(div().flex_none().text_color(t.ansi1).child(`−${del}`)));
   }
