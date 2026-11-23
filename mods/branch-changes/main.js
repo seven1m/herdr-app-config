@@ -1,6 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, setShared } from "herdr";
+import { options as modeOptions, mode, cycleMode, OPTIONS_KEY } from "./modes.js";
 
 function location() {
   const space = spaces().find((s) => s.active), f = focused();
@@ -8,7 +9,10 @@ function location() {
   const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
   return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
 }
-const key = () => JSON.stringify(location());
+const where = () => JSON.stringify(location());
+// The base and head are the minimap's, so both views show the same mode.
+const modeRefs = () => { const { base, head } = modeOptions(); return { base, head }; };
+const key = () => JSON.stringify([location(), modeRefs()]);
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie):
 // the folder watch would see it, and every refresh would start the next one.
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
@@ -18,18 +22,30 @@ const ago = (seconds) => {
 };
 const countLines = (text) => text ? text.split("\n").length - Number(text.endsWith("\n")) : 0;
 
-// What this branch is compared with: the merge base of HEAD and the remote's default branch
-// (origin/HEAD, else origin/main, origin/master, main, master). Null means just HEAD.
-async function branchBase(git) {
-  const head = await git(["rev-parse", "--abbrev-ref", "origin/HEAD"]);
-  const refs = [...(head.code === 0 && head.stdout.trim() !== "origin/HEAD" ? [head.stdout.trim()] : []), "origin/main", "origin/master", "main", "master"];
+// The merge base of `head` and the chosen base ref, else the first of origin/HEAD, origin/main,
+// origin/master, main and master that exists. Null means just HEAD.
+async function branchBase(git, chosen, head) {
+  if (chosen) {
+    const found = await git(["rev-parse", "--verify", "--quiet", `${chosen}^{commit}`]);
+    if (found.code !== 0) throw new Error(`Unknown base: ${chosen}`);
+  }
+  const origin = chosen ? null : await git(["rev-parse", "--abbrev-ref", "origin/HEAD"]);
+  const refs = chosen ? [chosen] : [...(origin.code === 0 && origin.stdout.trim() !== "origin/HEAD" ? [origin.stdout.trim()] : []), "origin/main", "origin/master", "main", "master"];
   for (const ref of refs) {
     const found = await git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
     if (found.code !== 0) continue;
-    const base = await git(["merge-base", ref, "HEAD"]);
-    if (base.code === 0 && base.stdout.trim()) return { sha: base.stdout.trim(), name: ref.replace(/^origin\//, "") };
+    const base = await git(["merge-base", ref, head]);
+    if (base.code === 0 && base.stdout.trim()) return { sha: base.stdout.trim(), name: ref };
   }
   return null;
+}
+
+// Which row of the scope list matches the mode: "all", "worktree", a commit's sha, or null for a custom range.
+function scopeOf({ base, head }, commits) {
+  if (!base && !head) return "all";
+  if (base === "HEAD" && !head) return "worktree";
+  if (base === "HEAD~1" && head === "HEAD") return commits[0]?.sha ?? null;
+  return commits.find((c) => head === c.short && base === `${c.short}^`)?.sha ?? null;
 }
 
 // Numbers each diff line once, so a frame only draws the rows on screen.
@@ -70,8 +86,9 @@ export default class Changes extends View {
     if (this.loading) { this.again = true; return; }
     const { cwd, on } = location(), context = key();
     if (context !== this.context) {
-      this.context = context; this.root = null; this.files = []; this.open = null; this.scope = "all"; this.commits = []; this.dirty = false;
-      this.setLines([]); this.error = null; this.note = null; this.watched = null; this.closed = false; this.limited = false;
+      if (where() !== this.where) { this.where = where(); this.root = null; this.commits = []; this.dirty = false; this.watched = null; }
+      this.context = context; this.files = []; this.open = null; this.scope = null;
+      this.setLines([]); this.error = null; this.note = null; this.closed = false; this.limited = false;
     }
     if (!cwd) return;
     this.loading = true;
@@ -84,19 +101,21 @@ export default class Changes extends View {
         const status = await git(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"]);
         if (status.code !== 0) throw new Error(status.stderr);
         const head = await git(["rev-parse", "--verify", "HEAD"]);
-        const base = head.code === 0 ? await branchBase(git) : null, against = base?.sha ?? "HEAD";
-        // The branch's commits, newest first. The selected scope picks the diff: "all" (base to the
-        // working tree, so uncommitted work too), "worktree" (HEAD to the working tree) or one commit.
-        const log = base ? await git(["log", "--no-color", "-z", "--format=%H%x1f%h%x1f%s%x1f%ct", `${base.sha}..HEAD`]) : null;
+        const branch = head.code === 0 ? await branchBase(git, "", "HEAD") : null;
+        // The branch's commits, newest first, list the scopes; the mode's base and head pick the diff.
+        // A head ref compares commits only; without one the working tree adds uncommitted and untracked files.
+        const log = branch ? await git(["log", "--no-color", "-z", "--format=%H%x1f%h%x1f%s%x1f%ct", `${branch.sha}..HEAD`]) : null;
         const commits = log?.code === 0 ? log.stdout.split("\0").filter(Boolean).slice(0, 200).map((e) => {
           const [sha, short, subject, time] = e.split("\x1f");
           return { sha: sha.trim(), short, subject, when: ago(Number(time)) };
         }) : [];
         const dirty = status.stdout.length > 0;
-        let scope = this.scope ?? "all";
-        if ((scope === "worktree" && !dirty) || (scope !== "all" && scope !== "worktree" && !commits.some((c) => c.sha === scope))) scope = "all";
-        const single = scope !== "all" && scope !== "worktree";
-        const range = scope === "all" ? [against] : scope === "worktree" ? ["HEAD"] : [`${scope}^`, scope];
+        const refs = modeRefs(), headRef = refs.head || "HEAD", single = Boolean(refs.head);
+        if (single && (await git(["rev-parse", "--verify", "--quiet", `${headRef}^{commit}`])).code !== 0) throw new Error(`Unknown head: ${refs.head}`);
+        const base = refs.base || refs.head ? (head.code === 0 ? await branchBase(git, refs.base, headRef) : null) : branch;
+        if (refs.base && !base) throw new Error(`No merge base between ${refs.base} and ${headRef}`);
+        const range = single ? [base?.sha ?? `${headRef}^`, headRef] : [base?.sha ?? "HEAD"];
+        const scope = scopeOf(refs, commits);
         const stats = {};
         const results = head.code === 0 ? [await git(["diff", ...range, "--numstat", "-z", "--no-renames"])] : [await git(["diff", "--cached", "--numstat", "-z", "--no-renames"]), await git(["diff", "--numstat", "-z", "--no-renames"])];
         for (const result of results) {
@@ -147,18 +166,19 @@ export default class Changes extends View {
     });
   }
 
-  // Shows all changes, uncommitted ones, or one commit; the file list and diff reload for it.
-  setScope(scope, cx) {
+  // Shows all changes, uncommitted ones, or one commit by setting the shared mode, which the minimap follows too.
+  setScope(scope) {
     if (scope === this.scope) return;
-    this.scope = scope; this.files = []; this.open = null; this.closed = false; this.note = null; this.setLines([]);
-    this.refresh(cx);
-    cx.notify();
+    const latest = this.commits[0]?.sha === scope, commit = this.commits.find((c) => c.sha === scope);
+    const refs = scope === "all" ? { base: "", head: "" } : scope === "worktree" ? { base: "HEAD", head: "" }
+      : latest ? { base: "HEAD~1", head: "HEAD" } : { base: `${commit.short}^`, head: commit.short };
+    setShared(OPTIONS_KEY, { ...modeOptions(), ...refs });
   }
 
   scopeRow(id, label, detail, t, mono) {
     const on = this.scope === id;
     return h_flex().id(`scope-${id}`).h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer().text_size(12)
-      .when(on, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.setScope(id, cx))
+      .when(on, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click(() => this.setScope(id))
       .when(Boolean(mono), (e) => e.child(div().flex_none().w(56).text_size(11).text_color(t.accent).font_family(settings().font_family ?? "JetBrains Mono").child(mono)))
       .child(div().flex_1().min_w(0).truncate().text_color(on ? t.foreground : t.muted).child(label))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(detail));
@@ -169,7 +189,7 @@ export default class Changes extends View {
     const count = `${this.commits.length} commit${this.commits.length === 1 ? "" : "s"}${this.dirty ? " + uncommitted" : ""}`;
     return v_flex().id("changes-commits").flex_none().h(Math.min(150, rows * 24 + 12)).overflow_y_scrollbar().p(6).border_b(1).border_color(t.border)
       .child(this.scopeRow("all", "All changes", count, t))
-      .when(this.dirty, (e) => e.child(this.scopeRow("worktree", "Uncommitted", "", t)))
+      .when(this.dirty || this.scope === "worktree", (e) => e.child(this.scopeRow("worktree", "Uncommitted", "", t)))
       .children(this.commits.map((c) => this.scopeRow(c.sha, c.subject, c.when, t, c.short)));
   }
 
@@ -221,12 +241,21 @@ export default class Changes extends View {
   render(cx) {
     if (key() !== this.context) this.refresh(cx);
     const t = theme(), add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
+    const refs = modeRefs(), current = mode();
+    const vs = this.baseName ? (refs.head ? `${this.baseName}…${refs.head}` : `vs ${this.baseName}`) : "";
+    const empty = current.id === "branch" && this.baseName ? `No changes vs ${this.baseName}` : `No changes · ${current.label}`;
     return v_flex().id("changes").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Changes"))
-        .when(Boolean(this.baseName), (e) => e.child(div().text_size(11).text_color(t.dim).child(`vs ${this.baseName}`)))
+        .when(Boolean(vs), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(current.id === "custom" ? t.accent : t.dim).child(vs)))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${this.files.length} files`))
-        .child(div().flex_1()).child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`)))
+        .child(div().flex_1()).child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`))
+        .child(div().id("changes-mode").size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .text_size(11).font_semibold().border_1().border_color(t.border)
+          .text_color(current.id === "custom" ? t.accent : t.muted)
+          .tooltip(`${current.label} (click to cycle)`)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click(() => cycleMode()).child(current.letter)))
       .when(this.commits.length > 0, (e) => e.child(this.commitList(t)))
       .child(v_flex().id("changes-list").flex_none().h(Math.min(200, Math.max(44, this.files.length * 28 + 12))).overflow_y_scrollbar().p(6).border_b(1).border_color(t.border).children(this.files.map((f) => {
         const parts = f.path.split("/"), name = parts.pop();
@@ -234,7 +263,7 @@ export default class Changes extends View {
           .child(div().w(14).text_size(11).text_color(f.status === "A" ? t.ansi2 : f.status === "D" ? t.ansi1 : f.status === "U" ? t.ansi1 : t.blocked).child(f.status))
           .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().max_w(260).min_w(0).truncate().child(name)))
           .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
-      })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? (this.baseName ? `No changes vs ${this.baseName}` : "No uncommitted changes") : "No folder")))))
+      })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? empty : "No folder")))))
       .when(this.limited, el => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Showing the first 1,000 changed files")))
       .child(div().flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
         .child(div().id("changes-diff-x").size_full().overflow_x_scrollbar()
