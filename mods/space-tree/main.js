@@ -1,9 +1,10 @@
-// Spaces with their agents nested underneath. An agent shows a spinner while working
-// and a colored dot when it needs you (blocked) or finished while you weren't looking.
+// Spaces with their tabs nested underneath, and a tab's agents under it when it has more
+// than one. A spinner means working; a colored dot means it needs you (blocked) or
+// finished while you weren't looking.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, ScrollHandle } from "gpui-base";
-import { spaces, agents, machines, run, openOverlay, theme, shared, setShared, setAgentOrder, layout } from "herdr";
+import { spaces, agents, panes, machines, run, openOverlay, theme, shared, setShared, setAgentOrder, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -33,6 +34,17 @@ function label(a, tab, many) {
   const title = clean(a.title);
   const telling = title && title !== a.address && title !== a.program?.name && title.toLowerCase() !== a.program?.key && !/^[~/]/.test(title);
   return telling ? title : a.program?.name || tab?.name || a.address;
+}
+
+// Same as the tabs mod: a tab nobody named follows its agent's live title.
+function tabLabel(tab, lead) {
+  const prog = lead?.program?.name;
+  const base = tab.named ? tab.name : prog ?? "Terminal";
+  if (!lead?.program?.agent) return base;
+  const live = clean(lead.title);
+  const path = /^[~/]|^[A-Za-z]:\\/.test((lead.title ?? "").replace(/^[^\p{L}\p{N}~/]+/u, ""));
+  const telling = live && live !== lead.terminal && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== lead.program.key;
+  return (tab.name === prog || !tab.named) && telling ? live : base;
 }
 
 export default class SpaceTree extends View {
@@ -74,12 +86,12 @@ export default class SpaceTree extends View {
       .text_size(10.5).font_bold().text_color("#ffffff").child([...s.name][0]?.toUpperCase() ?? "?");
   }
 
-  spaceRow(t, s, color, mine) {
+  spaceRow(t, s, color) {
     const folded = this.folded.has(s.id);
-    const hidden = folded ? mine : [];
-    const urgent = hidden.find((a) => a.status === "blocked")?.status
-      ?? hidden.find((a) => a.status === "done")?.status
-      ?? hidden.find((a) => a.status === "working")?.status;
+    const hidden = folded ? s.tabs : [];
+    const urgent = hidden.find((tab) => tab.status === "blocked")?.status
+      ?? hidden.find((tab) => tab.status === "done")?.status
+      ?? hidden.find((tab) => tab.status === "working")?.status;
     return h_flex()
       .id(`space-${s.id}`)
       .h(30)
@@ -96,20 +108,60 @@ export default class SpaceTree extends View {
       .child(this.avatar(t, s, color))
       .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(s.name))
       .when(Boolean(urgent), (el) => el.child(this.indicator(t, urgent)))
-      .when(mine.length > 0, (el) => el.child(
+      // new-menu opens its tab in the shown space, so only the shown space offers it.
+      .when(s.active, (el) => el.child(
+        div().id(`tab-new-${s.id}`).px(4).rounded(4).flex_none().text_color(t.dim)
+          .hover((h) => h.bg(t.hover).text_color(t.foreground))
+          .tooltip("New tab")
+          .on_click((_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }); })
+          .child("+")))
+      .when(s.tabs.length > 0, (el) => el.child(
         div().id(`fold-${s.id}`).p(3).rounded(4).flex_none().text_color(t.dim)
           .hover((h) => h.bg(t.hover).text_color(t.foreground))
           .on_click((_e, cx) => { cx.stop_propagation(); this.toggle(s.id, cx); })
           .child(svg(`mods/space-tree/chevron-${folded ? "right" : "down"}.svg`).size(11))));
   }
 
-  agentRow(t, a, tab, many) {
+  tabRow(t, s, tab, lead) {
+    const pic = icon(lead?.program, 14, t.muted);
+    const shown = s.active && tab.active;
+    const name = tabLabel(tab, lead);
+    const select = () => {
+      if (!s.active) run("space.select", { id: s.id });
+      run("tab.select", { id: tab.id });
+    };
+    return h_flex()
+      .id(`tab-${tab.id}`)
+      .h(26)
+      .pl(35)
+      .pr(8)
+      .gap(8)
+      .flex_none()
+      .items_center()
+      .rounded(8)
+      .text_size(12.5)
+      .cursor_pointer()
+      .when(shown, (el) => el.bg(t.raised))
+      .hover((h) => h.bg(t.hover))
+      .on_mouse_down("left", (e) => { if (e.click_count === 2) run("tab.rename", { id: tab.id }); })
+      .on_click(select)
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: s.id } } }); })
+      .when(Boolean(pic), (el) => el.child(pic))
+      .child(div().flex_1().min_w(0).truncate().text_color(shown ? t.foreground : tab.settled ? t.dim : t.muted).child(tab.zoomed ? `${name} Z` : name))
+      .child(this.indicator(t, tab.status) ?? div())
+      .when(shown, (el) => el.child(div().id(`close-${tab.id}`).flex_none().text_color(t.dim)
+        .hover((h) => h.text_color(t.foreground))
+        .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: tab.id }); })
+        .child(svg("mods/pane/close.svg").size(12))));
+  }
+
+  agentRow(t, a, tab) {
     const pic = icon(a.program, 14, t.foreground);
     const quiet = a.status === "idle" && !a.focused;
     return h_flex()
       .id(`agent-${a.address}`)
-      .h(26)
-      .pl(35)
+      .h(24)
+      .pl(57)
       .pr(8)
       .gap(8)
       .flex_none()
@@ -121,7 +173,7 @@ export default class SpaceTree extends View {
       .hover((h) => h.bg(t.hover))
       .on_click(() => run("pane.focus", { pane: a.pane }))
       .when(Boolean(pic), (el) => el.child(pic))
-      .child(div().flex_1().min_w(0).truncate().text_color(quiet ? t.muted : t.foreground).child(label(a, tab, many)))
+      .child(div().flex_1().min_w(0).truncate().text_color(quiet ? t.muted : t.foreground).child(label(a, tab, true)))
       .child(this.indicator(t, a.status) ?? div());
   }
 
@@ -151,17 +203,20 @@ export default class SpaceTree extends View {
     const key = `machine:${m.name ?? ""}`, folded = this.folded.has(key), ready = !m.name || m.layout === "ready";
     const label = m.name ?? "This computer";
     const icon = svg(`mods/space-tree/${m.name ? "server" : "monitor"}.svg`).size(13).flex_none();
+    const menu = (el) => el.on_mouse_down("right", () => openOverlay({ mod: "machine-menu", kind: "popup", width: 200, height: 41, props: { name: m.name } }));
     if (collapsed) {
       return h_flex().flex_none().justify_center().mt(4).child(h_flex().id(`machine-${m.name ?? "local"}`).relative().w(32).h(24).rounded(6)
         .justify_center().items_center().text_color(t.dim).cursor_pointer().hover((h) => h.bg(t.hover))
         .tooltip(m.name ? `${label} · ${m.layout}` : label)
         .on_click((_e, cx) => this.toggle(key, cx))
+        .when(Boolean(m.name), menu)
         .child(icon)
         .when(Boolean(m.name), (el) => el.child(div().absolute().right(7).bottom(4).size(6).rounded(3).bg(ready ? t.ansi2 : t.dim))));
     }
     return h_flex().id(`machine-${m.name ?? "local"}`).h(26).mt(4).px(8).gap(7).flex_none().items_center().rounded(6)
       .text_size(11).text_color(t.dim).cursor_pointer().hover((h) => h.bg(t.hover))
       .on_click((_e, cx) => this.toggle(key, cx))
+      .when(Boolean(m.name), menu)
       .child(icon)
       .child(div().flex_1().min_w(0).truncate().child(label))
       .when(!ready, (el) => el.child(div().flex_none().child(m.layout === "loading" ? "loading…" : "offline")))
@@ -180,9 +235,7 @@ export default class SpaceTree extends View {
     const sp = spaces();
     const colors = this.colors(sp);
     const all = agents();
-    const tabs = new Map(sp.flatMap((s) => s.tabs).map((tab) => [tab.id, tab]));
-    const perTab = new Map();
-    for (const a of all) perTab.set(a.tab, (perTab.get(a.tab) ?? 0) + 1);
+    const ps = panes();
 
     const order = [];
     const rows = [];
@@ -191,7 +244,8 @@ export default class SpaceTree extends View {
     const names = [...new Set([...known.map((m) => m.name), ...sp.map((s) => s.machine ?? null)].filter(Boolean))].sort();
     const groups = [null, ...names].map((name) => ({ name, layout: known.find((m) => m.name === name)?.layout ?? (name ? "unavailable" : "ready") }));
     const headers = names.length > 0;
-    for (const m of groups) {
+    for (const [i, m] of groups.entries()) {
+      if (headers && i > 0) rows.push(div().h(1).flex_none().mt(6).mb(2).mx(collapsed ? 6 : 4).bg(t.border));
       if (headers) rows.push(this.machineRow(t, m, collapsed));
       if (headers && this.folded.has(`machine:${m.name ?? ""}`)) continue;
       for (const s of sp.filter((s) => (s.machine ?? null) === m.name)) {
@@ -202,11 +256,14 @@ export default class SpaceTree extends View {
           order.push(...mine.map((a) => a.address));
           continue;
         }
-        rows.push(this.spaceRow(t, s, colors[s.id], mine));
+        rows.push(this.spaceRow(t, s, colors[s.id]));
         if (this.folded.has(s.id)) continue;
-        for (const a of mine) {
-          rows.push(this.agentRow(t, a, tabs.get(a.tab), perTab.get(a.tab) > 1));
-          order.push(a.address);
+        for (const tab of s.tabs) {
+          const inTab = mine.filter((a) => a.tab === tab.id);
+          const lead = ps.find((p) => p.tab === tab.id && p.program?.agent) ?? ps.find((p) => p.tab === tab.id);
+          rows.push(this.tabRow(t, s, tab, lead));
+          order.push(...inTab.map((a) => a.address));
+          if (inTab.length > 1) rows.push(...inTab.map((a) => this.agentRow(t, a, tab)));
         }
       }
     }

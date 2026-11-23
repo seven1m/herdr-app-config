@@ -24,7 +24,6 @@
         {
           "id": "sidebar-lists",
           "type": "column",
-          "resizable": true,
           "children": [
             {
               "id": "space-tree",
@@ -46,13 +45,14 @@
               "size": {
                 "px": 240
               },
+              "min": 100,
               "padding": [
                 8,
                 8
-              ],
-              "min": 100
+              ]
             }
-          ]
+          ],
+          "resizable": true
         },
         {
           "id": "sidebar-footer",
@@ -99,8 +99,9 @@
           "size": {
             "px": 42
           },
-          "window_drag": true,
-          "resizable": false
+          "hidden": true,
+          "resizable": false,
+          "window_drag": true
         },
         {
           "id": "work-body",
