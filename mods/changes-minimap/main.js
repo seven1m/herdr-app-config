@@ -166,7 +166,9 @@ export default class ChangesMinimap extends View {
         });
         files.sort((a, b) => a.path.localeCompare(b.path));
         this.setFiles(files);
-      } catch (e) { if (key() === context) this.error = String(e.message ?? e); }
+      } catch (e) {
+        if (key() === context) { this.error = String(e.message ?? e).trim(); this.diffText = null; this.setFiles([]); }
+      }
       finally { this.loading = false; cx.notify(); }
     });
   }
@@ -252,13 +254,15 @@ export default class ChangesMinimap extends View {
           .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted).border_1().border_color(t.border)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
           .on_click(() => this.toggleChanges()).child(svg("mods/changes-minimap/changes.svg").size(12))))
-      .when(!this.files.length, (e) => e.child(div().p(12).text_size(12).text_color(this.error ? t.ansi1 : t.dim).child(this.emptyText())))
-      .when(this.files.length > 0, (e) => e.child(div().flex_1().min_h(0).relative().py(6)
-        .child(v_virtual_list("minimap-rows", this.rows.length, this.sizes, (i) => this.rows[i].key,
-          (range) => this.rows.slice(range.start, range.end).map((r) => this.row(r, t)))
-          .size_full())
-        .child(Scrollbar.vertical("minimap-rows").viewport_from_layout().absolute().inset_0())))
-      .when(Boolean(this.truncated), (e) => e.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Diff too large; showing the start")))
+      .child(div().flex_1().min_h(0).relative().overflow_hidden()
+        .when(!this.files.length, (e) => e.child(div().id("minimap-empty").size_full().p(12).overflow_y_scrollbar()
+          .text_size(12).text_color(this.error ? t.ansi1 : t.dim).child(this.emptyText())))
+        .when(this.files.length > 0, (e) => e.py(6)
+          .child(v_virtual_list("minimap-rows", this.rows.length, this.sizes, (i) => this.rows[i].key,
+            (range) => this.rows.slice(range.start, range.end).map((r) => this.row(r, t)))
+            .size_full())
+          .child(Scrollbar.vertical("minimap-rows").viewport_from_layout().absolute().inset_0())))
+      .when(Boolean(this.truncated), (e) => e.child(div().flex_none().px(12).py(4).text_size(11).text_color(t.dim).child("Diff too large; showing the start")))
       .child(h_flex().h(28).flex_none().px(12).gap(6).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
         .child(div().flex_1().child(`${count} ${count === 1 ? "file" : "files"}`))
         .child(div().flex_none().text_color(t.ansi2).child(`+${add}`))
